@@ -158,6 +158,26 @@ def settle_plan(conn, group_id):
 app = Flask(__name__)
 
 
+@app.get("/")
+def index():
+    # ponytail: static index page so the API root isn't a bare 404
+    return """<!doctype html><meta charset=utf-8>
+<title>shareware API</title>
+<style>body{font:16px/1.5 system-ui;max-width:44rem;margin:3rem auto;padding:0 1rem}
+code{background:#f4f4f4;padding:.1em .3em;border-radius:3px}li{margin:.3em 0}</style>
+<h1>shareware</h1>
+<p>Splitwise-clone settle-up API. Balances are derived from an immutable
+ledger; money in integer cents. Try the demo group (Anna/Bob/Charlie):</p>
+<ul>
+<li><a href="/groups">/groups</a> &middot; <a href="/users">/users</a></li>
+<li><a href="/groups/1">/groups/1</a> &mdash; members + balances</li>
+<li><a href="/groups/1/expenses">/groups/1/expenses</a> &mdash; expense feed</li>
+<li><a href="/groups/1/settle-up">/groups/1/settle-up</a> &mdash; who pays whom</li>
+</ul>
+<p>Full API in the <code>README.md</code>.</p>
+"""
+
+
 @app.post("/groups/<int:group_id>/settlements")
 def create_settlement(group_id):
     body = request.get_json(silent=True) or {}

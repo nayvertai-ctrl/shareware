@@ -9,6 +9,18 @@ import app
 app.DB = tempfile.mktemp(suffix=".db")
 app.seed()
 c = app.app.test_client()
+# every data route now requires auth; log in as the seeded demo user and send the
+# Bearer token on all requests via environ_base.
+_tok = c.post("/auth/login", json={"email": "anna@example.com", "password": "password"}).get_json()["token"]
+c.environ_base["HTTP_AUTHORIZATION"] = f"Bearer {_tok}"
+
+
+def test_auth_required():
+    anon = app.app.test_client()          # no token
+    assert anon.get("/groups/1/settle-up").status_code == 401
+    assert anon.post("/auth/login",
+                     json={"email": "anna@example.com", "password": "x"}).status_code == 401
+    assert c.get("/auth/me").get_json()["email"] == "anna@example.com"
 
 
 def test_settle_up_seed():
@@ -98,8 +110,8 @@ def test_user_and_group_creation():
     # add the new user to the fresh group, then read detail
     assert c.post(f"/groups/{gid}/members", json={"user_id": uid}).status_code == 201
     detail = c.get(f"/groups/{gid}").get_json()
-    assert {m["user_id"] for m in detail["members"]} == {uid}
-    assert detail["members"][0]["balance"] == "0.00"       # no expenses yet
+    assert {m["user_id"] for m in detail["members"]} == {1, uid}   # Anna (creator) + Dana
+    assert all(m["balance"] == "0.00" for m in detail["members"])  # no expenses yet
     assert c.get("/groups/999").status_code == 404
 
 

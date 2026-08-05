@@ -1,0 +1,541 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>shareware — split expenses</title>
+<style>
+  :root{
+    --bg:#f6f7fb; --card:#ffffff; --text:#141726; --muted:#6b7280;
+    --border:#eceef3; --accent:#6d5efc; --accent2:#9b6dff;
+    --pos:#12a150; --pos-bg:#e6f6ec; --neg:#e5484d; --neg-bg:#fdecec;
+    --shadow:0 1px 2px rgba(20,23,38,.04),0 8px 24px rgba(20,23,38,.06);
+    --radius:16px;
+  }
+  :root[data-theme="dark"]{
+    --bg:#0e0f14; --card:#171922; --text:#e8e9ee; --muted:#9aa0ae;
+    --border:#232634; --accent:#7d6dff; --accent2:#a985ff;
+    --pos:#3fd07f; --pos-bg:#12281c; --neg:#ff6b6f; --neg-bg:#2a1517;
+    --shadow:0 1px 2px rgba(0,0,0,.3),0 12px 30px rgba(0,0,0,.35);
+  }
+  @media (prefers-color-scheme:dark){
+    :root:not([data-theme="light"]){
+      --bg:#0e0f14; --card:#171922; --text:#e8e9ee; --muted:#9aa0ae;
+      --border:#232634; --accent:#7d6dff; --accent2:#a985ff;
+      --pos:#3fd07f; --pos-bg:#12281c; --neg:#ff6b6f; --neg-bg:#2a1517;
+      --shadow:0 1px 2px rgba(0,0,0,.3),0 12px 30px rgba(0,0,0,.35);
+    }
+  }
+  *{box-sizing:border-box}
+  body{margin:0;font:15px/1.5 -apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,Helvetica,Arial,sans-serif;
+    background:var(--bg);color:var(--text);-webkit-font-smoothing:antialiased}
+  .wrap{max-width:760px;margin:0 auto;padding:0 16px 120px}
+  a{color:var(--accent)}
+  button{font:inherit;cursor:pointer;border:0;background:none;color:inherit}
+  select,input{font:inherit;color:var(--text)}
+
+  /* Header */
+  header{position:sticky;top:0;z-index:20;background:color-mix(in srgb,var(--bg) 86%,transparent);
+    backdrop-filter:blur(12px);border-bottom:1px solid var(--border)}
+  .hbar{max-width:760px;margin:0 auto;padding:12px 16px;display:flex;align-items:center;gap:12px}
+  .brand{display:flex;align-items:center;gap:10px;font-weight:800;letter-spacing:-.02em;font-size:18px}
+  .logo{width:30px;height:30px;border-radius:9px;background:linear-gradient(135deg,var(--accent),var(--accent2));
+    display:grid;place-items:center;color:#fff;font-weight:900;box-shadow:0 4px 12px rgba(109,94,252,.4)}
+  .spacer{flex:1}
+  .pill{display:flex;align-items:center;gap:6px;background:var(--card);border:1px solid var(--border);
+    border-radius:999px;padding:6px 10px;box-shadow:var(--shadow)}
+  .pill select{border:0;background:none;outline:none;font-weight:600;max-width:130px}
+  .icon-btn{width:38px;height:38px;border-radius:11px;display:grid;place-items:center;
+    background:var(--card);border:1px solid var(--border);box-shadow:var(--shadow);font-size:16px;transition:transform .15s}
+  .icon-btn:active{transform:scale(.92)}
+
+  /* Hero */
+  .hero{margin:20px 0;padding:22px;border-radius:22px;color:#fff;position:relative;overflow:hidden;
+    background:linear-gradient(135deg,var(--accent),var(--accent2));box-shadow:0 12px 30px rgba(109,94,252,.35)}
+  .hero::after{content:"";position:absolute;right:-40px;top:-40px;width:180px;height:180px;border-radius:50%;
+    background:rgba(255,255,255,.12)}
+  .hero .who{font-size:13px;opacity:.85;display:flex;align-items:center;gap:8px}
+  .hero .amt{font-size:40px;font-weight:850;letter-spacing:-.03em;margin:6px 0 2px}
+  .hero .sub{font-size:13px;opacity:.9}
+  .hero .stats{display:flex;gap:22px;margin-top:16px;position:relative;z-index:1}
+  .hero .stats div span{display:block;font-size:12px;opacity:.85}
+  .hero .stats div b{font-size:17px;font-weight:750}
+
+  /* Tabs */
+  .tabs{display:flex;gap:4px;background:var(--card);border:1px solid var(--border);border-radius:14px;
+    padding:5px;box-shadow:var(--shadow);position:sticky;top:64px;z-index:10}
+  .tabs button{flex:1;padding:9px;border-radius:10px;font-weight:650;color:var(--muted);transition:.18s}
+  .tabs button.active{background:linear-gradient(135deg,var(--accent),var(--accent2));color:#fff;box-shadow:0 4px 12px rgba(109,94,252,.35)}
+
+  section{margin-top:16px}
+  .card{background:var(--card);border:1px solid var(--border);border-radius:var(--radius);box-shadow:var(--shadow)}
+  .row{display:flex;align-items:center;gap:12px;padding:14px 16px}
+  .row+.row{border-top:1px solid var(--border)}
+  .av{width:40px;height:40px;border-radius:12px;display:grid;place-items:center;color:#fff;font-weight:750;flex:none;font-size:14px}
+  .grow{flex:1;min-width:0}
+  .grow .t{font-weight:650;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+  .grow .m{font-size:12.5px;color:var(--muted)}
+  .chip{font-weight:750;font-size:14px;padding:5px 10px;border-radius:999px;white-space:nowrap}
+  .chip.pos{color:var(--pos);background:var(--pos-bg)} .chip.neg{color:var(--neg);background:var(--neg-bg)}
+  .chip.zero{color:var(--muted);background:var(--border)}
+  .amt-lg{font-weight:800;font-size:16px;letter-spacing:-.01em}
+
+  .sec-head{display:flex;align-items:center;justify-content:space-between;margin:20px 4px 8px}
+  .sec-head h2{font-size:14px;text-transform:uppercase;letter-spacing:.06em;color:var(--muted);margin:0}
+  .link-btn{color:var(--accent);font-weight:650;font-size:13px}
+
+  .del{opacity:.5;font-size:15px;padding:6px;border-radius:8px;transition:.15s}
+  .del:hover{opacity:1;background:var(--neg-bg);color:var(--neg)}
+
+  .settle-row .arrow{color:var(--muted);font-weight:800}
+  .btn{background:linear-gradient(135deg,var(--accent),var(--accent2));color:#fff;font-weight:700;
+    padding:9px 14px;border-radius:11px;box-shadow:0 4px 12px rgba(109,94,252,.35);transition:transform .15s;
+    text-decoration:none;display:inline-flex;align-items:center}
+  .btn:active{transform:scale(.96)} .btn.sm{padding:7px 12px;font-size:13px}
+  .btn.ghost{background:var(--card);border:1px solid var(--border);color:var(--text);box-shadow:var(--shadow)}
+
+  .empty{text-align:center;color:var(--muted);padding:44px 20px}
+  .empty .big{font-size:34px;margin-bottom:8px}
+
+  /* FAB */
+  .fab{position:fixed;left:50%;transform:translateX(-50%);bottom:26px;z-index:30;
+    background:linear-gradient(135deg,var(--accent),var(--accent2));color:#fff;font-weight:750;
+    padding:15px 24px;border-radius:999px;box-shadow:0 10px 26px rgba(109,94,252,.5);display:flex;gap:8px;align-items:center;font-size:15px;transition:transform .18s}
+  .fab:active{transform:translateX(-50%) scale(.94)}
+
+  /* Modal */
+  .scrim{position:fixed;inset:0;background:rgba(10,10,20,.5);backdrop-filter:blur(3px);z-index:40;
+    display:flex;align-items:flex-end;justify-content:center;opacity:0;pointer-events:none;transition:opacity .2s}
+  .scrim.open{opacity:1;pointer-events:auto}
+  .sheet{background:var(--card);width:100%;max-width:760px;border-radius:24px 24px 0 0;padding:22px 20px 28px;
+    transform:translateY(24px);transition:transform .25s cubic-bezier(.2,.8,.2,1);max-height:92vh;overflow:auto}
+  .scrim.open .sheet{transform:translateY(0)}
+  @media(min-width:600px){.scrim{align-items:center}.sheet{border-radius:24px;transform:translateY(30px) scale(.98)}}
+  .sheet h3{margin:0 0 16px;font-size:19px;letter-spacing:-.01em}
+  .field{margin-bottom:14px} .field label{display:block;font-size:12.5px;color:var(--muted);margin-bottom:6px;font-weight:600}
+  .field input,.field select{width:100%;padding:12px 13px;border:1px solid var(--border);border-radius:12px;
+    background:var(--bg);outline:none;transition:.15s}
+  .field input:focus,.field select:focus{border-color:var(--accent);box-shadow:0 0 0 3px rgba(109,94,252,.15)}
+  .seg{display:flex;gap:6px;background:var(--bg);border:1px solid var(--border);border-radius:12px;padding:4px}
+  .seg button{flex:1;padding:8px;border-radius:9px;font-size:13px;font-weight:650;color:var(--muted)}
+  .seg button.on{background:var(--card);color:var(--text);box-shadow:var(--shadow)}
+  .parts{display:flex;flex-direction:column;gap:8px;max-height:210px;overflow:auto}
+  .part{display:flex;align-items:center;gap:10px;padding:8px 10px;border:1px solid var(--border);border-radius:11px}
+  .part input[type=checkbox]{width:18px;height:18px;accent-color:var(--accent)}
+  .part .grow{font-weight:600} .part input.val{width:92px;padding:8px;text-align:right}
+  .sheet-actions{display:flex;gap:10px;margin-top:8px}
+  .sheet-actions .btn{flex:1;justify-content:center;text-align:center;padding:13px}
+
+  /* Toast */
+  #toasts{position:fixed;bottom:96px;left:50%;transform:translateX(-50%);z-index:60;display:flex;flex-direction:column;gap:8px;width:calc(100% - 32px);max-width:420px}
+  .toast{background:var(--text);color:var(--bg);padding:12px 16px;border-radius:12px;font-weight:600;font-size:14px;
+    box-shadow:0 10px 30px rgba(0,0,0,.3);animation:pop .25s;display:flex;gap:8px;align-items:center}
+  .toast.err{background:var(--neg);color:#fff}
+  @keyframes pop{from{transform:translateY(12px);opacity:0}}
+  .skel{height:68px;border-radius:var(--radius);background:linear-gradient(90deg,var(--border),var(--card),var(--border));
+    background-size:200% 100%;animation:sh 1.2s infinite;margin-bottom:10px}
+  @keyframes sh{to{background-position:-200% 0}}
+  .fade{animation:fade .3s} @keyframes fade{from{opacity:0;transform:translateY(6px)}}
+
+  /* Auth screen */
+  .authscreen{position:fixed;inset:0;z-index:80;background:var(--bg);display:grid;place-items:center;padding:20px}
+  .authscreen[hidden]{display:none}   /* [hidden] alone loses to display:grid */
+  /* narrow screens: drop the wordmark and shrink pills so the header fits */
+  @media(max-width:520px){.hbar{gap:8px;padding:12px}.wordmark{display:none}
+    .pill{padding:6px 8px}.pill select,.pill b{max-width:84px}}
+  .authcard{width:100%;max-width:380px;background:var(--card);border:1px solid var(--border);
+    border-radius:22px;box-shadow:var(--shadow);padding:28px 24px;animation:fade .3s}
+  .authcard .logo{width:46px;height:46px;border-radius:13px;font-size:22px;margin:0 auto 14px}
+  .authcard h2{text-align:center;margin:0 0 4px;font-size:22px;letter-spacing:-.02em}
+  .authcard .tag{text-align:center;color:var(--muted);font-size:13px;margin-bottom:20px}
+  .authcard .btn{width:100%;justify-content:center;padding:13px;margin-top:6px}
+  .authcard .swap{text-align:center;margin-top:16px;font-size:13.5px;color:var(--muted)}
+  .authcard .swap a{cursor:pointer;font-weight:650}
+  .authcard .demo{text-align:center;margin-top:14px;font-size:12px;color:var(--muted);
+    background:var(--bg);border:1px dashed var(--border);border-radius:10px;padding:8px}
+</style>
+</head>
+<body>
+<header>
+  <div class="hbar">
+    <div class="brand"><div class="logo">S</div><span class="wordmark">shareware</span></div>
+    <div class="spacer"></div>
+    <div class="pill" title="Group">
+      <span>👥</span><select id="groupSel"></select>
+    </div>
+    <div class="pill" id="mePill" title="Signed in"><span>🙂</span><b id="meName">—</b></div>
+    <button class="icon-btn" id="themeBtn" title="Toggle theme">🌙</button>
+    <button class="icon-btn" id="logoutBtn" title="Log out">⎋</button>
+  </div>
+</header>
+
+<div class="wrap">
+  <div class="hero" id="hero"></div>
+
+  <div class="tabs">
+    <button data-tab="expenses" class="active">Expenses</button>
+    <button data-tab="balances">Balances</button>
+    <button data-tab="settle">Settle up</button>
+  </div>
+
+  <div id="view"></div>
+</div>
+
+<button class="fab" id="fab">＋ Add expense</button>
+
+<div class="scrim" id="scrim"><div class="sheet" id="sheet"></div></div>
+<div class="authscreen" id="authScreen" hidden></div>
+<div id="toasts"></div>
+
+<script>
+const $=(s,r=document)=>r.querySelector(s);
+let TOKEN=localStorage.token||null;
+let pendingInvite=new URLSearchParams(location.search).get('invite');  // /?invite=<token>
+const api=async(m,p,b)=>{
+  const h={}; if(b)h['Content-Type']='application/json'; if(TOKEN)h['Authorization']='Bearer '+TOKEN;
+  const r=await fetch(p,{method:m,headers:h,body:b?JSON.stringify(b):null});
+  if(r.status===401){TOKEN=null;localStorage.removeItem('token');showAuth();throw new Error('Please sign in')}
+  if(!r.ok){let e='';try{e=(await r.json()).error}catch{} throw new Error(e||r.statusText)}
+  return r.status===204?null:r.json()};
+const CUR={USD:'$',EUR:'€',GBP:'£',INR:'₹',CAD:'C$',AUD:'A$',SGD:'S$',AED:'AED '};
+const money=v=>{const n=parseFloat(v);return (n<0?'-':'')+(S.curSym||'$')+Math.abs(n).toFixed(2)};
+const AV=['#6d5efc','#12a150','#e5484d','#f5a623','#0aa2c0','#d6409f','#7d56f4','#e8590c'];
+const color=s=>AV[[...s].reduce((a,c)=>a+c.charCodeAt(0),0)%AV.length];
+const initials=s=>s.trim().split(/\s+/).map(w=>w[0]).slice(0,2).join('').toUpperCase();
+const av=n=>`<div class="av" style="background:${color(n)}">${initials(n)}</div>`;
+function toast(msg,err){const t=document.createElement('div');t.className='toast'+(err?' err':'');
+  t.innerHTML=(err?'⚠️ ':'✓ ')+msg;$('#toasts').append(t);setTimeout(()=>{t.style.opacity=0;setTimeout(()=>t.remove(),300)},2600)}
+
+const S={users:[],groups:[],gid:null,uid:null,members:[],expenses:[],plan:[],summary:null,tab:'expenses'};
+const nameOf=id=>{const m=S.members.find(x=>x.user_id===id)||S.users.find(x=>x.id===id);return m?(m.name):('#'+id)};
+
+// ---- theme ----
+const themeBtn=$('#themeBtn');
+function applyTheme(t){if(t)document.documentElement.dataset.theme=t;
+  const dark=(document.documentElement.dataset.theme||(matchMedia('(prefers-color-scheme:dark)').matches?'dark':'light'))==='dark';
+  themeBtn.textContent=dark?'☀️':'🌙'}
+themeBtn.onclick=()=>{const cur=document.documentElement.dataset.theme||(matchMedia('(prefers-color-scheme:dark)').matches?'dark':'light');
+  const next=cur==='dark'?'light':'dark';localStorage.theme=next;applyTheme(next)};
+applyTheme(localStorage.theme);
+
+// ---- auth ----
+function hideAuth(){$('#authScreen').hidden=true}
+function showAuth(mode='login'){
+  const a=$('#authScreen');a.hidden=false;const login=mode==='login';
+  a.innerHTML=`<div class="authcard">
+    <div class="logo" style="background:linear-gradient(135deg,var(--accent),var(--accent2));display:grid;place-items:center;color:#fff;font-weight:900">S</div>
+    <h2>shareware</h2><div class="tag">${login?'Sign in to split expenses':'Create your account'}</div>
+    ${login?'':'<div class="field"><label>Name</label><input id="au_name" placeholder="Alex"></div>'}
+    <div class="field"><label>Email</label><input id="au_email" type="email" placeholder="you@example.com" autocomplete="username"></div>
+    <div class="field"><label>Password</label><input id="au_pw" type="password" placeholder="••••••" autocomplete="${login?'current':'new'}-password"></div>
+    <button class="btn" id="au_go">${login?'Sign in':'Create account'}</button>
+    <div class="swap">${login?'New here? <a id="au_swap">Create an account</a>':'Have an account? <a id="au_swap">Sign in</a>'}</div>
+    ${login?'<div class="demo">Demo login — anna@example.com · password</div>':''}
+  </div>`;
+  $('#au_swap').onclick=()=>showAuth(login?'signup':'login');
+  const submit=async()=>{
+    const email=$('#au_email').value.trim(),pw=$('#au_pw').value;
+    if(!email||!pw)return toast('Email and password required',1);
+    const body=login?{email,password:pw}:{name:$('#au_name').value.trim(),email,password:pw};
+    if(!login&&!body.name)return toast('Name required',1);
+    try{const res=await api('POST',login?'/auth/login':'/auth/signup',body);
+      TOKEN=res.token;localStorage.token=TOKEN;toast(login?'Welcome back':'Account created');await boot();
+    }catch(e){toast(e.message,1)}
+  };
+  $('#au_go').onclick=submit;
+  a.querySelectorAll('input').forEach(i=>i.onkeydown=e=>{if(e.key==='Enter')submit()});
+}
+$('#logoutBtn').onclick=async()=>{try{await api('POST','/auth/logout')}catch{} TOKEN=null;localStorage.removeItem('token');showAuth()};
+$('#mePill').style.cursor='pointer';
+$('#mePill').onclick=openSettings;
+function openSettings(){
+  const p=(S.me&&S.me.pay)||{};
+  openSheet(`<h3>Your account</h3>
+    <div class="field"><label>Name</label><input id="se_name" value="${S.me?.name||''}"></div>
+    <p style="color:var(--muted);font-size:12.5px;margin:8px 0 14px">Payment handles — group members can pay you back in one tap on the Settle-up tab.</p>
+    <div class="field"><label>UPI ID</label><input id="se_upi" placeholder="you@bank" value="${p.upi||''}"></div>
+    <div class="field"><label>PayPal.me username</label><input id="se_paypal" placeholder="yourname" value="${p.paypal||''}"></div>
+    <div class="field"><label>Venmo username</label><input id="se_venmo" placeholder="yourname" value="${p.venmo||''}"></div>
+    <div class="sheet-actions"><button class="btn ghost" onclick="closeSheet()" style="flex:.5">Cancel</button>
+      <button class="btn" id="se_save">Save</button></div>`);
+  $('#se_save').onclick=async()=>{
+    try{const me=await api('PATCH','/auth/me',{name:$('#se_name').value.trim(),
+        upi:$('#se_upi').value.trim(),paypal:$('#se_paypal').value.trim(),venmo:$('#se_venmo').value.trim()});
+      S.me=me;$('#meName').textContent=me.name;closeSheet();toast('Saved');await loadGroup();
+    }catch(e){toast(e.message,1)}};
+}
+
+// ---- boot ----
+async function boot(){
+  if(!TOKEN){showAuth();return}
+  let me; try{me=await api('GET','/auth/me')}catch{return}   // 401 already showed the login screen
+  hideAuth();
+  S.me=me;S.uid=me.id;$('#meName').textContent=me.name;
+  let jumpTo=null;
+  if(pendingInvite){                                   // arrived via an invite link
+    try{const j=await api('POST',`/invites/${pendingInvite}/accept`);toast(`Joined ${j.name}`);jumpTo=j.id}
+    catch(e){toast(e.message,1)}
+    pendingInvite=null;history.replaceState({},'',location.pathname);
+  }
+  S.users=await api('GET','/users');
+  S.groups=await api('GET','/groups');
+  $('#groupSel').innerHTML=S.groups.map(g=>`<option value="${g.id}">${g.name}</option>`).join('')+'<option value="__new">＋ New group</option>';
+  if(!S.groups.length){$('#hero').innerHTML='';
+    $('#view').innerHTML=`<div class="empty"><div class="big">🫙</div>No groups yet.<br>
+      <button class="btn" style="margin-top:14px" onclick="openNewGroup()">Create your first group</button></div>`;return}
+  S.gid=(jumpTo&&S.groups.some(g=>g.id===jumpTo))?jumpTo:S.groups[0].id;
+  $('#groupSel').value=S.gid;
+  await loadGroup();
+}
+$('#groupSel').onchange=async e=>{if(e.target.value==='__new'){e.target.value=S.gid||'';openNewGroup();return}
+  S.gid=+e.target.value;await loadGroup()};
+
+async function loadGroup(){
+  $('#view').innerHTML='<div class="skel"></div><div class="skel"></div><div class="skel"></div>';
+  const [g,ex,plan]=await Promise.all([
+    api('GET',`/groups/${S.gid}`),api('GET',`/groups/${S.gid}/expenses`),api('GET',`/groups/${S.gid}/settle-up`)]);
+  S.members=g.members;S.expenses=ex;S.plan=plan;S.groupObj=g;
+  S.curCode=g.currency||'USD';S.curSym=CUR[S.curCode]||(S.curCode+' ');
+  try{S.summary=await api('GET',`/users/${S.uid}/summary`)}catch{S.summary=null}
+  renderHero();render();
+}
+
+// ---- hero ----
+function renderHero(){
+  const me=S.members.find(m=>m.user_id===S.uid);
+  const bal=me?parseFloat(me.balance):0;
+  const state=bal>0.001?'you are owed':bal<-0.001?'you owe':'all settled up';
+  const s=(S.summary&&S.summary.by_currency&&S.summary.by_currency[S.curCode])||{owed:'0.00',owe:'0.00',net:'0.00'};
+  $('#hero').innerHTML=`
+    <div class="who">${av(nameOf(S.uid))}<span>${nameOf(S.uid)} · in ${S.groupObj?.name||''}</span></div>
+    <div class="amt">${money(Math.abs(bal))}</div>
+    <div class="sub">${state}</div>
+    <div class="stats">
+      <div><span>owed to you · all ${S.curCode} groups</span><b style="color:#eafff2">${money(s.owed)}</b></div>
+      <div><span>you owe · all ${S.curCode} groups</span><b style="color:#ffe9ea">${money(s.owe)}</b></div>
+      <div><span>net</span><b>${money(s.net)}</b></div>
+    </div>`;
+  $('#hero').classList.add('fade');
+}
+
+// ---- tabs ----
+document.querySelectorAll('.tabs button').forEach(b=>b.onclick=()=>{
+  S.tab=b.dataset.tab;document.querySelectorAll('.tabs button').forEach(x=>x.classList.toggle('active',x===b));render()});
+
+function render(){
+  const v=$('#view');v.className='fade';
+  if(S.tab==='expenses')return renderExpenses(v);
+  if(S.tab==='balances')return renderBalances(v);
+  return renderSettle(v);
+}
+
+function renderExpenses(v){
+  if(!S.expenses.length){v.innerHTML=`<div class="empty"><div class="big">🧾</div>No expenses yet.<br>Tap “Add expense”.</div>`;return}
+  v.innerHTML=`<div class="card">`+S.expenses.map(e=>{
+    const parts=e.shares.map(s=>nameOf(s.user_id)).join(', ');
+    return `<div class="row">
+      ${av(nameOf(e.paid_by))}
+      <div class="grow"><div class="t">${e.description||'Expense'}</div>
+        <div class="m">${nameOf(e.paid_by)} paid · split ${e.shares.length} ways</div></div>
+      <div class="amt-lg">${money(e.amount)}</div>
+      <button class="del" title="Delete" onclick="delExpense(${e.id})">🗑</button>
+    </div>`}).join('')+`</div>`;
+}
+
+// couples/households are a client-side view grouping, stored per group in localStorage.
+// balances stay per-person on the server; we just display & total linked partners together.
+const hhKey=()=>`households:${S.gid}`;
+const getHH=()=>{try{return JSON.parse(localStorage[hhKey()]||'[]')}catch{return[]}};
+const setHH=h=>localStorage[hhKey()]=JSON.stringify(h);
+function balMeta(b){b=parseFloat(b);const cls=b>0.001?'pos':b<-0.001?'neg':'zero';
+  const lbl=b>0.001?`gets back ${money(b)}`:b<-0.001?`owes ${money(-b)}`:'settled';return{cls,lbl}}
+const memberRow=m=>{const {cls,lbl}=balMeta(m.balance);return `<div class="row">${av(m.name)}
+    <div class="grow"><div class="t">${m.name}${m.user_id===S.uid?' <span class="m">(you)</span>':''}</div>
+      <div class="m">${lbl}</div></div><div class="chip ${cls}">${money(m.balance)}</div></div>`};
+
+function renderBalances(v){
+  const byId=Object.fromEntries(S.members.map(m=>[m.user_id,m]));
+  let hh=getHH().filter(p=>byId[p[0]]&&byId[p[1]]); setHH(hh);   // drop stale links
+  const inHH=new Set(hh.flat());
+  let rows='';
+  hh.forEach((pair,i)=>{
+    const [a,b]=pair.map(id=>byId[id]);
+    const combined=(parseFloat(a.balance)+parseFloat(b.balance)).toFixed(2);
+    const {cls,lbl}=balMeta(combined);
+    rows+=`<div class="row" style="background:var(--bg)">
+      <div style="display:flex;flex:none">${av(a.name)}<div style="margin-left:-14px">${av(b.name)}</div></div>
+      <div class="grow"><div class="t">${a.name} & ${b.name} <span class="m">· couple</span></div>
+        <div class="m">${lbl} together</div></div>
+      <div class="chip ${cls}">${money(combined)}</div>
+      <button class="del" title="Unlink" onclick="unlinkCouple(${i})">✕</button></div>`;
+    [a,b].forEach(m=>{const mm=balMeta(m.balance);
+      rows+=`<div class="row" style="padding-left:34px;opacity:.82">${av(m.name)}
+        <div class="grow"><div class="t">${m.name}${m.user_id===S.uid?' <span class="m">(you)</span>':''}</div>
+          <div class="m">${mm.lbl}</div></div><div class="chip ${mm.cls}">${money(m.balance)}</div></div>`});
+  });
+  S.members.filter(m=>!inHH.has(m.user_id)).forEach(m=>rows+=memberRow(m));
+  v.innerHTML=`<div class="sec-head"><h2>Members · ${S.members.length}</h2>
+      <div style="display:flex;gap:14px">
+        <button class="link-btn" onclick="openInvite()">🔗 Invite</button>
+        ${S.members.length>=2?'<button class="link-btn" onclick="openLinkCouple()">＋ Link couple</button>':''}
+        <button class="link-btn" onclick="openAddMember()">＋ Add member</button></div></div>
+    <div class="card">${rows||'<div class="empty">No members</div>'}</div>`;
+}
+function unlinkCouple(i){const h=getHH();h.splice(i,1);setHH(h);toast('Couple unlinked');render()}
+
+async function openInvite(){
+  let data; try{data=await api('POST',`/groups/${S.gid}/invite`)}catch(e){return toast(e.message,1)}
+  openSheet(`<h3>Invite to ${S.groupObj.name}</h3>
+    <p style="color:var(--muted);font-size:13px;margin:-6px 0 16px">Anyone with this link can sign in and join this group.</p>
+    <div class="field"><label>Invite link</label><input id="inv_url" readonly value="${data.url}"></div>
+    <div class="sheet-actions"><button class="btn ghost" onclick="closeSheet()" style="flex:.5">Close</button>
+      <button class="btn" id="inv_copy">Copy link</button></div>`);
+  $('#inv_copy').onclick=async()=>{
+    try{await navigator.clipboard.writeText(data.url)}
+    catch{const el=$('#inv_url');el.select();document.execCommand('copy')}
+    toast('Link copied')};
+}
+function openLinkCouple(){
+  const inHH=new Set(getHH().flat());
+  const free=S.members.filter(m=>!inHH.has(m.user_id));
+  if(free.length<2)return toast('Need two unlinked members',1);
+  const opts=free.map(m=>`<option value="${m.user_id}">${m.name}</option>`).join('');
+  openSheet(`<h3>Link a couple</h3>
+    <p style="color:var(--muted);font-size:13px;margin:-6px 0 16px">Shown together with a combined balance. Each partner still keeps their own share of every expense.</p>
+    <div class="field"><label>Partner 1</label><select id="c_a">${opts}</select></div>
+    <div class="field"><label>Partner 2</label><select id="c_b">${opts}</select></div>
+    <div class="sheet-actions"><button class="btn ghost" onclick="closeSheet()" style="flex:.5">Cancel</button>
+      <button class="btn" id="c_save">Link couple</button></div>`);
+  $('#c_b').selectedIndex=Math.min(1,free.length-1);
+  $('#c_save').onclick=()=>{const a=+$('#c_a').value,b=+$('#c_b').value;
+    if(a===b)return toast('Pick two different people',1);
+    const h=getHH();h.push([a,b]);setHH(h);closeSheet();toast('Couple linked');render()};
+}
+
+function payLinks(uid,amount){
+  const m=S.members.find(x=>x.user_id===uid),p=m&&m.pay; if(!p)return [];
+  const note=encodeURIComponent('shareware'+(S.groupObj?' '+S.groupObj.name:'')),nm=encodeURIComponent(m.name);
+  const out=[];
+  if(p.upi)out.push({label:'UPI',url:`upi://pay?pa=${encodeURIComponent(p.upi)}&pn=${nm}&am=${amount}&cu=INR&tn=${note}`});
+  if(p.paypal)out.push({label:'PayPal',url:`https://paypal.me/${encodeURIComponent(p.paypal)}/${amount}`});
+  if(p.venmo)out.push({label:'Venmo',url:`https://venmo.com/${encodeURIComponent(p.venmo)}?txn=pay&amount=${amount}&note=${note}`});
+  return out;
+}
+
+function renderSettle(v){
+  if(!S.plan.length){v.innerHTML=`<div class="empty"><div class="big">🎉</div>Everyone’s settled up!</div>`;return}
+  v.innerHTML=`<div class="sec-head"><h2>Suggested payments · ${S.plan.length}</h2>
+      <span class="m" style="color:var(--muted);font-size:12px">${S.groupObj?.simplify_debts?'simplified':'direct'}</span></div>
+    <div class="card">`+S.plan.map(p=>{
+    const mine=p.from_user===S.uid||p.to_user===S.uid;
+    const pays=p.from_user===S.uid?payLinks(p.to_user,p.amount):[];
+    const payBtns=pays.map(l=>`<a class="btn ghost sm" href="${l.url}" target="_blank" rel="noopener">${l.label}</a>`).join('');
+    const role=p.from_user===S.uid?'you pay':p.to_user===S.uid?'pays you':'suggested';
+    return `<div class="row settle-row" ${mine?'style="background:var(--pos-bg)"':''}>
+      ${av(nameOf(p.from_user))}
+      <div class="grow"><div class="t">${nameOf(p.from_user)} <span class="arrow">→</span> ${nameOf(p.to_user)}</div>
+        <div class="m">${role} · <b>${money(p.amount)}</b></div></div>
+      <div style="display:flex;flex-wrap:wrap;gap:6px;justify-content:flex-end;align-items:center">
+        ${payBtns}<button class="btn sm" onclick="settle(${p.from_user},${p.to_user},'${p.amount}')">Settle</button>
+      </div>
+    </div>`}).join('')+`</div>`;
+}
+
+// ---- actions ----
+async function delExpense(id){if(!confirm('Delete this expense?'))return;
+  try{await api('DELETE','/expenses/'+id);toast('Expense deleted');await loadGroup()}catch(e){toast(e.message,1)}}
+async function settle(from,to,amt){
+  try{await api('POST',`/groups/${S.gid}/settlements`,{from_user:from,to_user:to,amount:amt});
+    toast(`${nameOf(from)} paid ${nameOf(to)} ${money(amt)}`);await loadGroup()}catch(e){toast(e.message,1)}}
+
+// ---- modal framework ----
+const scrim=$('#scrim');
+function openSheet(html){$('#sheet').innerHTML=html;scrim.classList.add('open')}
+function closeSheet(){scrim.classList.remove('open')}
+scrim.onclick=e=>{if(e.target===scrim)closeSheet()};
+
+// add expense
+$('#fab').onclick=openAddExpense;
+function openAddExpense(){
+  if(!S.members.length){toast('Add members to this group first',1);S.tab='balances';render();return}
+  const opts=S.members.map(m=>`<option value="${m.user_id}">${m.name}</option>`).join('');
+  const parts=S.members.map(m=>`<label class="part">
+      <input type="checkbox" class="pchk" data-uid="${m.user_id}" checked>
+      <span class="grow">${m.name}</span>
+      <input class="val" data-uid="${m.user_id}" type="number" step="0.01" style="display:none">
+    </label>`).join('');
+  openSheet(`<h3>Add expense</h3>
+    <div class="field"><label>Description</label><input id="f_desc" placeholder="Dinner, taxi, groceries…"></div>
+    <div class="field"><label>Amount ($)</label><input id="f_amt" type="number" step="0.01" placeholder="0.00" inputmode="decimal"></div>
+    <div class="field"><label>Paid by</label><select id="f_payer">${opts}</select></div>
+    <div class="field"><label>Split</label>
+      <div class="seg" id="f_seg">
+        <button class="on" data-t="equal">Equal</button><button data-t="exact">Exact</button>
+        <button data-t="percent">%</button><button data-t="shares">Shares</button></div></div>
+    <div class="field"><label id="f_plbl">Participants</label><div class="parts">${parts}</div></div>
+    <div class="sheet-actions">
+      <button class="btn ghost" onclick="closeSheet()" style="flex:.5">Cancel</button>
+      <button class="btn" id="f_save">Add expense</button></div>`);
+  let split='equal';
+  const seg=$('#f_seg');
+  seg.querySelectorAll('button').forEach(b=>b.onclick=()=>{
+    split=b.dataset.t;seg.querySelectorAll('button').forEach(x=>x.classList.toggle('on',x===b));
+    const show=split!=='equal';
+    document.querySelectorAll('.val').forEach(i=>i.style.display=show?'block':'none');
+    $('#f_plbl').textContent=split==='equal'?'Participants':split==='exact'?'Exact amounts ($)':split==='percent'?'Percentages (sum 100)':'Shares (weights)';
+  });
+  $('#f_save').onclick=submitExpense.bind(null,()=>split);
+}
+async function submitExpense(getSplit){
+  const split=getSplit();
+  const desc=$('#f_desc').value.trim();
+  const amt=parseFloat($('#f_amt').value);
+  const payer=+$('#f_payer').value;
+  if(!amt||amt<=0)return toast('Enter a valid amount',1);
+  const chosen=[...document.querySelectorAll('.pchk')].filter(c=>c.checked).map(c=>+c.dataset.uid);
+  if(!chosen.length)return toast('Pick at least one participant',1);
+  const body={paid_by:payer,amount:amt.toFixed(2),split_type:split,description:desc||null};
+  if(split==='equal'){body.participants=chosen}
+  else{body.splits=chosen.map(uid=>({user_id:uid,value:parseFloat($(`.val[data-uid="${uid}"]`).value||'0')}))}
+  try{await api('POST',`/groups/${S.gid}/expenses`,body);closeSheet();toast('Expense added');await loadGroup()}
+  catch(e){toast(e.message,1)}
+}
+
+// add member / new person
+function openAddMember(){
+  const nonMembers=S.users.filter(u=>!S.members.find(m=>m.user_id===u.id));
+  const opts=nonMembers.map(u=>`<option value="${u.id}">${u.name}</option>`).join('');
+  openSheet(`<h3>Add member</h3>
+    ${opts?`<div class="field"><label>Existing person</label><select id="m_sel">${opts}</select></div>
+      <div class="sheet-actions"><button class="btn" id="m_add">Add to group</button></div>
+      <div class="sec-head"><h2>or</h2></div>`:''}
+    <div class="field"><label>New person's name</label><input id="m_name" placeholder="Alex"></div>
+    <div class="sheet-actions"><button class="btn ghost" onclick="closeSheet()" style="flex:.5">Cancel</button>
+      <button class="btn" id="m_create">Create & add</button></div>`);
+  if(opts)$('#m_add').onclick=async()=>{try{await api('POST',`/groups/${S.gid}/members`,{user_id:+$('#m_sel').value});
+    closeSheet();toast('Member added');await refreshUsers();await loadGroup()}catch(e){toast(e.message,1)}};
+  $('#m_create').onclick=async()=>{const n=$('#m_name').value.trim();if(!n)return toast('Enter a name',1);
+    try{const u=await api('POST','/users',{name:n});await api('POST',`/groups/${S.gid}/members`,{user_id:u.id});
+      closeSheet();toast(`${n} added`);await refreshUsers();await loadGroup()}catch(e){toast(e.message,1)}};
+}
+function openNewGroup(){
+  openSheet(`<h3>New group</h3>
+    <div class="field"><label>Group name</label><input id="g_name" placeholder="Trip to Goa"></div>
+    <div class="field"><label>Currency</label><select id="g_cur">
+      ${Object.entries(CUR).map(([c,s])=>`<option value="${c}">${c} · ${s.trim()}</option>`).join('')}</select></div>
+    <label class="part" style="border:0;padding:0;margin-bottom:14px"><input type="checkbox" id="g_simp" checked>
+      <span class="grow">Simplify debts (fewer payments)</span></label>
+    <div class="sheet-actions"><button class="btn ghost" onclick="closeSheet()" style="flex:.5">Cancel</button>
+      <button class="btn" id="g_save">Create group</button></div>`);
+  $('#g_save').onclick=async()=>{const n=$('#g_name').value.trim();if(!n)return toast('Enter a name',1);
+    try{const g=await api('POST','/groups',{name:n,simplify_debts:$('#g_simp').checked,currency:$('#g_cur').value});
+      S.groups.push(g);S.gid=g.id;
+      $('#groupSel').innerHTML=S.groups.map(x=>`<option value="${x.id}">${x.name}</option>`).join('')+'<option value="__new">＋ New group</option>';
+      $('#groupSel').value=g.id;closeSheet();toast('Group created');await loadGroup()}catch(e){toast(e.message,1)}};
+}
+async function refreshUsers(){S.users=await api('GET','/users')}
+
+boot().catch(e=>{$('#view').innerHTML=`<div class="empty">Failed to load: ${e.message}</div>`});
+</script>
+</body>
+</html>

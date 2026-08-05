@@ -314,6 +314,32 @@ def list_users():
     return jsonify([{"id": r["id"], "name": r["name"]} for r in rows])
 
 
+@app.get("/users/<int:user_id>/summary")
+def user_summary(user_id):
+    """Splitwise-style headline: this user's net across every group, plus totals.
+    net>0 = owed to you, net<0 = you owe. total_net = owed - owe."""
+    with db() as conn:
+        if conn.execute("SELECT 1 FROM users WHERE id=?", (user_id,)).fetchone() is None:
+            abort(404, "user not found")
+        groups = conn.execute("SELECT id, name FROM groups ORDER BY id").fetchall()
+        per_group, owed, owe = [], 0, 0
+        for g in groups:
+            net = net_balances(pairwise_debts(conn, g["id"])).get(user_id, 0)
+            if net == 0:
+                continue
+            per_group.append({"group_id": g["id"], "name": g["name"],
+                              "balance": f"{net/100:.2f}"})
+            if net > 0:
+                owed += net
+            else:
+                owe += -net
+    return jsonify({"user_id": user_id,
+                    "total_owed": f"{owed/100:.2f}",     # summed across groups
+                    "total_owe": f"{owe/100:.2f}",
+                    "total_net": f"{(owed - owe)/100:.2f}",
+                    "groups": per_group})
+
+
 @app.post("/groups")
 def create_group():
     body = request.get_json(silent=True) or {}
@@ -507,8 +533,16 @@ def selfcheck():
         assert all(float(p["amount"]) > 0 for p in out)
         print("ok:", out)   # Charlie->Anna 35.00, Bob->Anna 5.00
 
-    # POST settlements: validation + effect on the plan
+    # user summary (fresh seed): Anna owed 40, Bob owes 5, Charlie owes 35
     c = app.test_client()
+    anna = c.get("/users/1/summary").get_json()
+    assert anna["total_owed"] == "40.00" and anna["total_owe"] == "0.00"
+    assert anna["total_net"] == "40.00" and anna["groups"][0]["group_id"] == 1
+    bob = c.get("/users/2/summary").get_json()
+    assert bob["total_owe"] == "5.00" and bob["total_net"] == "-5.00"
+    assert c.get("/users/999/summary").status_code == 404
+
+    # POST settlements: validation + effect on the plan
     assert c.post("/groups/1/settlements", json={"from_user": 3}).status_code == 400
     assert c.post("/groups/1/settlements",
                   json={"from_user": 3, "to_user": 3, "amount": 5}).status_code == 400

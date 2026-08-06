@@ -1,86 +1,109 @@
-# Deploying shareware (free, no credit card)
+# Deploying shareware
 
-Recommended host: **PythonAnywhere** free "Beginner" account — no card, persistent
-disk (so SQLite just works), free HTTPS, no Docker. Perfect for a family-scale app.
+**Live app: https://nayvertai-ctrl.github.io/shareware/**
 
-## What "deploy-ready" means here
+Everything below is already set up. This document explains how it fits together
+and how to update it.
 
-The repo already includes:
-- `wsgi.py` — production entry point. Creates tables if missing, **never wipes data**
-  (unlike `python3 app.py`, which re-seeds demo data and is for local dev only).
-- `requirements.txt` — just `Flask`.
-- `DB_PATH` env var support; by default the SQLite file lives next to `app.py`, on
-  PythonAnywhere's persistent disk — no config needed.
+## Architecture
 
-The deployed app starts **empty** (no Anna/Bob demo data): you and your family just
-sign up at the URL. Accounts + membership authz mean it's safe to expose publicly.
+shareware is a static frontend talking directly to Supabase. There is no
+application server.
 
----
-
-## Checklist
-
-### 0. Get the code onto GitHub
-The steps below `git clone` the repo, so the deploy changes must be pushed first.
-The repo `nayvertai-ctrl/shareware` is **private**, so on PythonAnywhere either:
-- **Make it public** (the code has no secrets), then clone the plain HTTPS URL; or
-- Keep it private and clone with a **GitHub personal access token**:
-  `git clone https://<TOKEN>@github.com/nayvertai-ctrl/shareware.git`
-
-### 1. Create the account
-- Sign up at **pythonanywhere.com** → "Create a Beginner account" (free, email only).
-
-### 2. Clone + install (Bash console)
-On the dashboard: **Consoles → Bash**, then:
-```bash
-git clone https://github.com/nayvertai-ctrl/shareware.git
-cd shareware
-pip install --user -r requirements.txt
+```
+index.html  ──►  GitHub Pages          (static hosting, free)
+     │
+     ├────────►  Supabase Auth         (email + password, signup is open)
+     ├────────►  Supabase PostgREST    (reads + simple writes, guarded by RLS)
+     └────────►  Edge Function `api`   (the logic RLS can't express)
 ```
 
-### 3. Create the web app
-- **Web** tab → **Add a new web app** → **Manual configuration** → **Python 3.x**
-  (pick the version `python3 --version` showed in the console).
+**Why the split.** Row Level Security handles every read, plus the writes that
+can't break an invariant: recording a settlement, soft-deleting an expense,
+adding an already-registered member, creating an invite, and editing your own
+profile. Creating a group is the `create_group_with_owner` RPC, so the group and
+its first membership row are inserted atomically.
 
-### 4. Point it at the app
-In the **Web** tab:
-- **Source code**: `/home/YOURUSERNAME/shareware`
-- **Working directory**: `/home/YOURUSERNAME/shareware`
-- Click the **WSGI configuration file** link and replace its entire contents with:
-  ```python
-  import sys
-  path = "/home/YOURUSERNAME/shareware"
-  if path not in sys.path:
-      sys.path.insert(0, path)
-  from wsgi import application  # noqa: F401
-  ```
-  (Replace `YOURUSERNAME` in both files.)
+Anything with real logic goes through the `api` Edge Function, which uses the
+service-role key to bypass RLS *only after validating the request itself*:
 
-### 5. Go live
-- Click the big green **Reload** button.
-- Open **https://YOURUSERNAME.pythonanywhere.com** — you should see the login screen.
-- Click **Create an account**, sign up, create a group, and share the URL with family.
-  Each person signs up themselves, or you send them a group **invite link** from the app.
+| Action | Why it can't be a plain table write |
+|---|---|
+| `create_expense` / `update_expense` | Splits must always sum to the expense total |
+| `settle_up` | Greedy min-cash-flow over the whole group |
+| `group_detail` | Per-member balances are computed, not stored |
+| `user_summary` | Cross-group totals, bucketed per currency |
+| `accept_invite` / `preview_invite` | A token holder isn't a member yet, so RLS has nothing to check |
+| `remove_member` | Only allowed when that member's balance is zero |
+| `create_shadow_member` | Creates an auth user for someone with no account |
 
----
+`supabase/schema.sql` documents which tables are reachable directly and which
+deliberately have no client write policy.
 
-## Operating it
+## Updating
 
-- **HTTPS** is automatic on the `pythonanywhere.com` subdomain.
-- **Keep-alive**: free web apps ask you to click a "run until 3 months from now"
-  button every ~3 months (they email a reminder). One click keeps it running.
-- **Updating after code changes**:
-  ```bash
-  cd ~/shareware && git pull
-  ```
-  then **Reload** in the Web tab.
-- **Backups**: the whole database is one file — `~/shareware/splitwise.db`. Download it
-  occasionally from the **Files** tab to keep a backup.
-- **Data safety**: `wsgi.py` only ever runs `CREATE TABLE IF NOT EXISTS`. Never run
-  `python3 app.py` (plain) on the server — that path re-seeds and wipes. Use it only
-  on your own machine for local testing.
+### Frontend
+```bash
+git push origin main
+```
+GitHub Pages redeploys automatically (~1 min). Check with:
+```bash
+gh api repos/nayvertai-ctrl/shareware/pages --jq .status   # "built" when done
+```
 
-## If you outgrow the free tier
+### Edge Function
+```bash
+supabase functions deploy api
+```
+Run the logic tests first — they cover the money math with no network needed:
+```bash
+deno test supabase/functions/api/index.test.ts
+```
 
-Move the data to a free **Neon** or **Supabase** Postgres (also no card) and host the
-app on **Koyeb** free (no card, no sleep). That needs porting `sqlite3` → `psycopg`.
-Not necessary for friends-and-family scale.
+### Database schema
+`schema.sql` is the complete, current definition — it already includes
+everything the `fix_*.sql` patches did. Those patches exist only because the
+live database was built from an earlier `schema.sql` and had to be migrated
+in place; they are history, not setup steps.
+
+For a new change, add another patch file and run it against the live database:
+```bash
+supabase db query --linked -f supabase/your_patch.sql
+```
+(or paste it into the Supabase Dashboard → SQL Editor), **and** fold the same
+change into `schema.sql` so a fresh project still gets it.
+
+## Setting this up again from scratch
+
+1. Create a Supabase project.
+2. SQL Editor → run `supabase/schema.sql`. That's the whole schema.
+   **Do not run the `fix_*.sql` files** — they are in-place migrations for the
+   existing database and will fail on a fresh one (duplicate constraint,
+   function already exists).
+3. Put the new project's URL and **publishable** key at the top of the
+   `<script>` block in `index.html`.
+4. `supabase link --project-ref <ref>` then `supabase functions deploy api`.
+5. Enable GitHub Pages: repo Settings → Pages → source `main` / root.
+   (The repo must be public, or Pages needs a paid plan.)
+
+## Notes
+
+- **The anon/publishable key in `index.html` is meant to be public.** It
+  identifies the project, it does not grant access. RLS is the actual security
+  boundary — an anonymous caller reading `profiles` gets an empty array. Never
+  put the **service-role** key in the frontend; it belongs only in the Edge
+  Function, where Supabase injects it as an environment variable.
+- **Signup is open** — anyone with the URL can create an account. They see
+  nothing until someone adds them to a group or shares an invite link.
+- **Invite links** are `…/shareware/?invite=<token>`. The token *is* the
+  authorization, so treat it like a password.
+- **Backups**: Supabase takes daily backups on the free tier — Dashboard →
+  Database → Backups. Pulling your own copy with
+  `supabase db dump --linked -f backup.sql` needs **Docker Desktop installed and
+  running** (it isn't, on this machine — the command fails with a docker error),
+  or `brew install libpq` for a direct `pg_dump` using the connection string and
+  database password from Dashboard → Settings → Database.
+- **`app.py` is legacy.** The frontend no longer calls it. It's the original
+  Flask + SQLite implementation, kept for reference — note that its split and
+  settle-up logic is now duplicated in TypeScript in the Edge Function, so the
+  two can drift. Don't deploy it.

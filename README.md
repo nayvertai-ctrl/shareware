@@ -1,5 +1,13 @@
 # shareware
 
+> **Live app: https://nayvertai-ctrl.github.io/shareware/** — deployed as a static
+> `index.html` on GitHub Pages talking to Supabase (Postgres + RLS + Auth + one Edge
+> Function). See [DEPLOY.md](DEPLOY.md) for that architecture.
+>
+> The Flask/SQLite description below is the **original implementation** in `app.py`.
+> It still runs standalone and the API reference is accurate for it, but the deployed
+> app no longer uses it.
+
 A single-file Splitwise-clone settle-up API + web app. Flask + Python stdlib `sqlite3`, money stored as integer cents, all balances derived (never stored) from an immutable ledger of expenses, expense shares, and settlements. Includes email/password accounts, invite links, per-group currency, and one-tap pay deep-links (UPI / PayPal / Venmo). The web UI is a single self-contained `index.html` served at `/`.
 
 ## Why it's designed this way

@@ -248,7 +248,6 @@ function showAuth(mode='login'){
     <div class="field"><label>Password</label><input id="au_pw" type="password" placeholder="••••••" autocomplete="${login?'current':'new'}-password"></div>
     <button class="btn" id="au_go">${login?'Sign in':'Create account'}</button>
     <div class="swap">${login?'New here? <a id="au_swap">Create an account</a>':'Have an account? <a id="au_swap">Sign in</a>'}</div>
-    ${login?'<div class="demo">Demo login — anna@example.com · password</div>':''}
   </div>`;
   $('#au_swap').onclick=()=>showAuth(login?'signup':'login');
   const submit=async()=>{

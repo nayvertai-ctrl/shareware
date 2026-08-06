@@ -2,9 +2,9 @@
   "version": "0.0.1",
   "configurations": [
     {
-      "name": "shareware-api",
+      "name": "shareware-web",
       "runtimeExecutable": "python3",
-      "runtimeArgs": ["app.py"],
+      "runtimeArgs": ["-m", "http.server", "5000"],
       "port": 5000
     }
   ]

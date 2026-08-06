@@ -103,7 +103,9 @@ change into `schema.sql` so a fresh project still gets it.
   running** (it isn't, on this machine — the command fails with a docker error),
   or `brew install libpq` for a direct `pg_dump` using the connection string and
   database password from Dashboard → Settings → Database.
-- **`app.py` is legacy.** The frontend no longer calls it. It's the original
-  Flask + SQLite implementation, kept for reference — note that its split and
-  settle-up logic is now duplicated in TypeScript in the Edge Function, so the
-  two can drift. Don't deploy it.
+- **The original Flask + SQLite implementation was removed** (`app.py`,
+  `test_app.py`, `wsgi.py`) once the frontend stopped calling it — it kept a
+  second, drifting copy of the split and settle-up math. It's in git history if
+  you need it: `git show 152e778:app.py`.
+- **Local development**: `make serve` (a plain static file server on :5000).
+  There is no backend to run locally; the page talks to hosted Supabase.

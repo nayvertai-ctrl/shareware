@@ -5,9 +5,10 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
-      - uses: actions/setup-python@v5
+      - uses: denoland/setup-deno@v2
         with:
-          python-version: '3.x'
-      - run: pip install flask
-      - run: python app.py test
-      - run: python test_app.py
+          deno-version: v2.x
+      # Type-check the Edge Function and run the money-logic tests
+      # (split shares, net balances, greedy settle-up). No network needed.
+      - run: deno check supabase/functions/api/index.ts
+      - run: deno test supabase/functions/api/index.test.ts

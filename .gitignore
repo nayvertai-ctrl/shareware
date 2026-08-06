@@ -2,3 +2,5 @@ splitwise.db
 __pycache__/
 *.pyc
 graphify-out/
+.claude/settings.local.json
+supabase/.temp/

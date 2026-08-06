@@ -187,16 +187,34 @@
 <div class="authscreen" id="authScreen" hidden></div>
 <div id="toasts"></div>
 
+<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
 <script>
 const $=(s,r=document)=>r.querySelector(s);
-let TOKEN=localStorage.token||null;
+const SUPABASE_URL='https://zpabeysebwfqjfpwwzqw.supabase.co';
+const SUPABASE_ANON_KEY='sb_publishable_UHoA1-xX9kOCx2oSIjt5ew_e-n6nosR';
+const sb=supabase.createClient(SUPABASE_URL,SUPABASE_ANON_KEY);
 let pendingInvite=new URLSearchParams(location.search).get('invite');  // /?invite=<token>
-const api=async(m,p,b)=>{
-  const h={}; if(b)h['Content-Type']='application/json'; if(TOKEN)h['Authorization']='Bearer '+TOKEN;
-  const r=await fetch(p,{method:m,headers:h,body:b?JSON.stringify(b):null});
-  if(r.status===401){TOKEN=null;localStorage.removeItem('token');showAuth();throw new Error('Please sign in')}
-  if(!r.ok){let e='';try{e=(await r.json()).error}catch{} throw new Error(e||r.statusText)}
-  return r.status===204?null:r.json()};
+
+// unwrap a postgrest-js/rpc call: throws like the old api() helper did, so
+// every existing catch(e){toast(e.message,1)} call site keeps working.
+const unwrap=async(q)=>{const {data,error}=await q;if(error)throw new Error(error.message);return data};
+// calls the `api` Edge Function for the handful of actions with real logic
+// (split math, settle-up, invite-by-token, balance-gated member removal).
+const callFn=async(action,params={})=>{
+  const {data:{session}}=await sb.auth.getSession();
+  const r=await fetch(`${SUPABASE_URL}/functions/v1/api`,{method:'POST',
+    headers:{'Content-Type':'application/json',apikey:SUPABASE_ANON_KEY,
+             Authorization:'Bearer '+(session?.access_token||'')},
+    body:JSON.stringify({action,...params})});
+  let body=null; try{body=await r.json()}catch{}
+  if(!r.ok)throw new Error(body?.error||r.statusText);
+  return body};
+// dollars -> cents via string parsing, same as the Edge Function's toCents
+// (never float-multiply dollars*100).
+const toCents=v=>{const m=/^(-?)(\d+)(?:\.(\d{1,2}))?$/.exec(String(v).trim());
+  if(!m)throw new Error('amount must be a number');
+  const [,sign,whole,frac='']=m;const c=parseInt(whole+frac.padEnd(2,'0'),10);return sign?-c:c};
+
 const CUR={USD:'$',EUR:'€',GBP:'£',INR:'₹',CAD:'C$',AUD:'A$',SGD:'S$',AED:'AED '};
 const money=v=>{const n=parseFloat(v);return (n<0?'-':'')+(S.curSym||'$')+Math.abs(n).toFixed(2)};
 const AV=['#6d5efc','#12a150','#e5484d','#f5a623','#0aa2c0','#d6409f','#7d56f4','#e8590c'];
@@ -236,16 +254,20 @@ function showAuth(mode='login'){
   const submit=async()=>{
     const email=$('#au_email').value.trim(),pw=$('#au_pw').value;
     if(!email||!pw)return toast('Email and password required',1);
-    const body=login?{email,password:pw}:{name:$('#au_name').value.trim(),email,password:pw};
-    if(!login&&!body.name)return toast('Name required',1);
-    try{const res=await api('POST',login?'/auth/login':'/auth/signup',body);
-      TOKEN=res.token;localStorage.token=TOKEN;toast(login?'Welcome back':'Account created');await boot();
+    const name=$('#au_name')?.value.trim();
+    if(!login&&!name)return toast('Name required',1);
+    try{
+      const {error}=login
+        ? await sb.auth.signInWithPassword({email,password:pw})
+        : await sb.auth.signUp({email,password:pw,options:{data:{name}}});
+      if(error)throw new Error(error.message);
+      toast(login?'Welcome back':'Account created');await boot();
     }catch(e){toast(e.message,1)}
   };
   $('#au_go').onclick=submit;
   a.querySelectorAll('input').forEach(i=>i.onkeydown=e=>{if(e.key==='Enter')submit()});
 }
-$('#logoutBtn').onclick=async()=>{try{await api('POST','/auth/logout')}catch{} TOKEN=null;localStorage.removeItem('token');showAuth()};
+$('#logoutBtn').onclick=async()=>{await sb.auth.signOut();showAuth()};
 $('#mePill').style.cursor='pointer';
 $('#mePill').onclick=openSettings;
 function openSettings(){
@@ -259,26 +281,41 @@ function openSettings(){
     <div class="sheet-actions"><button class="btn ghost" onclick="closeSheet()" style="flex:.5">Cancel</button>
       <button class="btn" id="se_save">Save</button></div>`);
   $('#se_save').onclick=async()=>{
-    try{const me=await api('PATCH','/auth/me',{name:$('#se_name').value.trim(),
-        upi:$('#se_upi').value.trim(),paypal:$('#se_paypal').value.trim(),venmo:$('#se_venmo').value.trim()});
-      S.me=me;$('#meName').textContent=me.name;closeSheet();toast('Saved');await loadGroup();
+    try{
+      const name=$('#se_name').value.trim();
+      if(!name)throw new Error('name cannot be empty');
+      const row=await unwrap(sb.from('profiles').update({
+        name, upi_id:$('#se_upi').value.trim()||null,
+        paypal_me:$('#se_paypal').value.trim()||null,
+        venmo:$('#se_venmo').value.trim()||null,
+      }).eq('id',S.uid).select('name,upi_id,paypal_me,venmo').single());
+      S.me={id:S.uid,name:row.name,email:S.me.email,
+            pay:{upi:row.upi_id,paypal:row.paypal_me,venmo:row.venmo}};
+      $('#meName').textContent=row.name;closeSheet();toast('Saved');await loadGroup();
     }catch(e){toast(e.message,1)}};
 }
 
 // ---- boot ----
 async function boot(){
-  if(!TOKEN){showAuth();return}
-  let me; try{me=await api('GET','/auth/me')}catch{return}   // 401 already showed the login screen
+  const {data:{session}}=await sb.auth.getSession();
+  if(!session){showAuth();return}
+  const {data:{user}}=await sb.auth.getUser();
+  if(!user){showAuth();return}
+  let meRow;
+  try{meRow=await unwrap(sb.from('profiles').select('name,upi_id,paypal_me,venmo').eq('id',user.id).single())}
+  catch{showAuth();return}
   hideAuth();
-  S.me=me;S.uid=me.id;$('#meName').textContent=me.name;
+  S.me={id:user.id,name:meRow.name,email:user.email,
+        pay:{upi:meRow.upi_id,paypal:meRow.paypal_me,venmo:meRow.venmo}};
+  S.uid=user.id;$('#meName').textContent=meRow.name;
   let jumpTo=null;
   if(pendingInvite){                                   // arrived via an invite link
-    try{const j=await api('POST',`/invites/${pendingInvite}/accept`);toast(`Joined ${j.name}`);jumpTo=j.id}
+    try{const j=await callFn('accept_invite',{token:pendingInvite});toast(`Joined ${j.name}`);jumpTo=j.id}
     catch(e){toast(e.message,1)}
     pendingInvite=null;history.replaceState({},'',location.pathname);
   }
-  S.users=await api('GET','/users');
-  S.groups=await api('GET','/groups');
+  S.users=await unwrap(sb.from('profiles').select('id,name').order('name'));
+  S.groups=await unwrap(sb.from('groups').select('id,name').order('id'));
   $('#groupSel').innerHTML=S.groups.map(g=>`<option value="${g.id}">${g.name}</option>`).join('')+'<option value="__new">＋ New group</option>';
   if(!S.groups.length){$('#hero').innerHTML='';
     $('#view').innerHTML=`<div class="empty"><div class="big">🫙</div>No groups yet.<br>
@@ -292,11 +329,19 @@ $('#groupSel').onchange=async e=>{if(e.target.value==='__new'){e.target.value=S.
 
 async function loadGroup(){
   $('#view').innerHTML='<div class="skel"></div><div class="skel"></div><div class="skel"></div>';
-  const [g,ex,plan]=await Promise.all([
-    api('GET',`/groups/${S.gid}`),api('GET',`/groups/${S.gid}/expenses`),api('GET',`/groups/${S.gid}/settle-up`)]);
-  S.members=g.members;S.expenses=ex;S.plan=plan;S.groupObj=g;
-  S.curCode=g.currency||'USD';S.curSym=CUR[S.curCode]||(S.curCode+' ');
-  try{S.summary=await api('GET',`/users/${S.uid}/summary`)}catch{S.summary=null}
+  const [g,exRows,plan]=await Promise.all([
+    callFn('group_detail',{group_id:S.gid}),
+    unwrap(sb.from('expenses').select('id,paid_by,amount_cents,description,expense_shares(user_id,share_cents)')
+      .eq('group_id',S.gid).is('deleted_at',null).order('id',{ascending:false}).limit(50)),
+    callFn('settle_up',{group_id:S.gid}),
+  ]);
+  S.members=g.members;
+  S.expenses=exRows.map(e=>({id:e.id,paid_by:e.paid_by,description:e.description,
+    amount:(e.amount_cents/100).toFixed(2),
+    shares:e.expense_shares.map(s=>({user_id:s.user_id,share:(s.share_cents/100).toFixed(2)}))}));
+  S.plan=plan;S.groupObj=g;
+  S.curCode=g.currency||'INR';S.curSym=CUR[S.curCode]||(S.curCode+' ');
+  try{S.summary=await callFn('user_summary')}catch{S.summary=null}
   renderHero();render();
 }
 
@@ -384,14 +429,23 @@ function renderBalances(v){
 function unlinkCouple(i){const h=getHH();h.splice(i,1);setHH(h);toast('Couple unlinked');render()}
 
 async function openInvite(){
-  let data; try{data=await api('POST',`/groups/${S.gid}/invite`)}catch(e){return toast(e.message,1)}
+  let token;
+  try{
+    const existing=await unwrap(sb.from('invites').select('token').eq('group_id',S.gid).maybeSingle());
+    token=existing?.token;
+    if(!token){
+      const created=await unwrap(sb.from('invites').insert({group_id:S.gid,created_by:S.uid}).select('token').single());
+      token=created.token;
+    }
+  }catch(e){return toast(e.message,1)}
+  const url=`${location.origin}${location.pathname}?invite=${token}`;
   openSheet(`<h3>Invite to ${S.groupObj.name}</h3>
     <p style="color:var(--muted);font-size:13px;margin:-6px 0 16px">Anyone with this link can sign in and join this group.</p>
-    <div class="field"><label>Invite link</label><input id="inv_url" readonly value="${data.url}"></div>
+    <div class="field"><label>Invite link</label><input id="inv_url" readonly value="${url}"></div>
     <div class="sheet-actions"><button class="btn ghost" onclick="closeSheet()" style="flex:.5">Close</button>
       <button class="btn" id="inv_copy">Copy link</button></div>`);
   $('#inv_copy').onclick=async()=>{
-    try{await navigator.clipboard.writeText(data.url)}
+    try{await navigator.clipboard.writeText(url)}
     catch{const el=$('#inv_url');el.select();document.execCommand('copy')}
     toast('Link copied')};
 }
@@ -407,7 +461,7 @@ function openLinkCouple(){
     <div class="sheet-actions"><button class="btn ghost" onclick="closeSheet()" style="flex:.5">Cancel</button>
       <button class="btn" id="c_save">Link couple</button></div>`);
   $('#c_b').selectedIndex=Math.min(1,free.length-1);
-  $('#c_save').onclick=()=>{const a=+$('#c_a').value,b=+$('#c_b').value;
+  $('#c_save').onclick=()=>{const a=$('#c_a').value,b=$('#c_b').value;
     if(a===b)return toast('Pick two different people',1);
     const h=getHH();h.push([a,b]);setHH(h);closeSheet();toast('Couple linked');render()};
 }
@@ -436,16 +490,17 @@ function renderSettle(v){
       <div class="grow"><div class="t">${nameOf(p.from_user)} <span class="arrow">→</span> ${nameOf(p.to_user)}</div>
         <div class="m">${role} · <b>${money(p.amount)}</b></div></div>
       <div style="display:flex;flex-wrap:wrap;gap:6px;justify-content:flex-end;align-items:center">
-        ${payBtns}<button class="btn sm" onclick="settle(${p.from_user},${p.to_user},'${p.amount}')">Settle</button>
+        ${payBtns}<button class="btn sm" onclick="settle('${p.from_user}','${p.to_user}','${p.amount}')">Settle</button>
       </div>
     </div>`}).join('')+`</div>`;
 }
 
 // ---- actions ----
 async function delExpense(id){if(!confirm('Delete this expense?'))return;
-  try{await api('DELETE','/expenses/'+id);toast('Expense deleted');await loadGroup()}catch(e){toast(e.message,1)}}
+  try{await unwrap(sb.from('expenses').update({deleted_at:new Date().toISOString()}).eq('id',id));
+    toast('Expense deleted');await loadGroup()}catch(e){toast(e.message,1)}}
 async function settle(from,to,amt){
-  try{await api('POST',`/groups/${S.gid}/settlements`,{from_user:from,to_user:to,amount:amt});
+  try{await unwrap(sb.from('settlements').insert({group_id:S.gid,from_user:from,to_user:to,amount_cents:toCents(amt)}));
     toast(`${nameOf(from)} paid ${nameOf(to)} ${money(amt)}`);await loadGroup()}catch(e){toast(e.message,1)}}
 
 // ---- modal framework ----
@@ -490,14 +545,14 @@ async function submitExpense(getSplit){
   const split=getSplit();
   const desc=$('#f_desc').value.trim();
   const amt=parseFloat($('#f_amt').value);
-  const payer=+$('#f_payer').value;
+  const payer=$('#f_payer').value;
   if(!amt||amt<=0)return toast('Enter a valid amount',1);
-  const chosen=[...document.querySelectorAll('.pchk')].filter(c=>c.checked).map(c=>+c.dataset.uid);
+  const chosen=[...document.querySelectorAll('.pchk')].filter(c=>c.checked).map(c=>c.dataset.uid);
   if(!chosen.length)return toast('Pick at least one participant',1);
-  const body={paid_by:payer,amount:amt.toFixed(2),split_type:split,description:desc||null};
+  const body={group_id:S.gid,paid_by:payer,amount:amt.toFixed(2),split_type:split,description:desc||null};
   if(split==='equal'){body.participants=chosen}
   else{body.splits=chosen.map(uid=>({user_id:uid,value:parseFloat($(`.val[data-uid="${uid}"]`).value||'0')}))}
-  try{await api('POST',`/groups/${S.gid}/expenses`,body);closeSheet();toast('Expense added');await loadGroup()}
+  try{await callFn('create_expense',body);closeSheet();toast('Expense added');await loadGroup()}
   catch(e){toast(e.message,1)}
 }
 
@@ -512,28 +567,30 @@ function openAddMember(){
     <div class="field"><label>New person's name</label><input id="m_name" placeholder="Alex"></div>
     <div class="sheet-actions"><button class="btn ghost" onclick="closeSheet()" style="flex:.5">Cancel</button>
       <button class="btn" id="m_create">Create & add</button></div>`);
-  if(opts)$('#m_add').onclick=async()=>{try{await api('POST',`/groups/${S.gid}/members`,{user_id:+$('#m_sel').value});
+  if(opts)$('#m_add').onclick=async()=>{try{await unwrap(sb.from('memberships').insert({group_id:S.gid,user_id:$('#m_sel').value}));
     closeSheet();toast('Member added');await refreshUsers();await loadGroup()}catch(e){toast(e.message,1)}};
   $('#m_create').onclick=async()=>{const n=$('#m_name').value.trim();if(!n)return toast('Enter a name',1);
-    try{const u=await api('POST','/users',{name:n});await api('POST',`/groups/${S.gid}/members`,{user_id:u.id});
+    try{await callFn('create_shadow_member',{group_id:S.gid,name:n});
       closeSheet();toast(`${n} added`);await refreshUsers();await loadGroup()}catch(e){toast(e.message,1)}};
 }
 function openNewGroup(){
   openSheet(`<h3>New group</h3>
     <div class="field"><label>Group name</label><input id="g_name" placeholder="Trip to Goa"></div>
     <div class="field"><label>Currency</label><select id="g_cur">
-      ${Object.entries(CUR).map(([c,s])=>`<option value="${c}">${c} · ${s.trim()}</option>`).join('')}</select></div>
+      ${Object.entries(CUR).map(([c,s])=>`<option value="${c}"${c==='INR'?' selected':''}>${c} · ${s.trim()}</option>`).join('')}</select></div>
     <label class="part" style="border:0;padding:0;margin-bottom:14px"><input type="checkbox" id="g_simp" checked>
       <span class="grow">Simplify debts (fewer payments)</span></label>
     <div class="sheet-actions"><button class="btn ghost" onclick="closeSheet()" style="flex:.5">Cancel</button>
       <button class="btn" id="g_save">Create group</button></div>`);
   $('#g_save').onclick=async()=>{const n=$('#g_name').value.trim();if(!n)return toast('Enter a name',1);
-    try{const g=await api('POST','/groups',{name:n,simplify_debts:$('#g_simp').checked,currency:$('#g_cur').value});
-      S.groups.push(g);S.gid=g.id;
+    try{
+      const g=await unwrap(sb.rpc('create_group_with_owner',
+        {p_name:n,p_currency:$('#g_cur').value,p_simplify:$('#g_simp').checked}));
+      S.groups.push({id:g.id,name:g.name});S.gid=g.id;
       $('#groupSel').innerHTML=S.groups.map(x=>`<option value="${x.id}">${x.name}</option>`).join('')+'<option value="__new">＋ New group</option>';
       $('#groupSel').value=g.id;closeSheet();toast('Group created');await loadGroup()}catch(e){toast(e.message,1)}};
 }
-async function refreshUsers(){S.users=await api('GET','/users')}
+async function refreshUsers(){S.users=await unwrap(sb.from('profiles').select('id,name').order('name'))}
 
 boot().catch(e=>{$('#view').innerHTML=`<div class="empty">Failed to load: ${e.message}</div>`});
 </script>

@@ -34,7 +34,7 @@ CREATE TABLE IF NOT EXISTS users   (id INTEGER PRIMARY KEY, name TEXT,
                                     upi_id TEXT, paypal_me TEXT, venmo TEXT);
 CREATE TABLE IF NOT EXISTS groups  (id INTEGER PRIMARY KEY, name TEXT,
                                     simplify_debts INTEGER DEFAULT 0,
-                                    currency TEXT DEFAULT 'USD');
+                                    currency TEXT DEFAULT 'INR');
 CREATE TABLE IF NOT EXISTS expenses(id INTEGER PRIMARY KEY, group_id INTEGER,
                                     paid_by INTEGER, amount_cents INTEGER,
                                     description TEXT, deleted_at TEXT);
@@ -524,7 +524,7 @@ def create_group():
     if not name:
         abort(400, "name required")
     simplify = 1 if body.get("simplify_debts") else 0
-    currency = (body.get("currency") or "USD").upper()
+    currency = (body.get("currency") or "INR").upper()
     if currency not in CURRENCIES:
         abort(400, "unsupported currency")
     with db() as conn:

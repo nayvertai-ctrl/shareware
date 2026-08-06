@@ -1,0 +1,6 @@
+project_id = "shareware"
+
+[functions.api]
+# The gateway itself rejects requests without a valid user JWT before
+# index.ts runs -- every action in this function requires being logged in.
+verify_jwt = true

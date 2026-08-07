@@ -64,12 +64,16 @@ create table public.groups (
   currency text not null default 'INR'
     check (currency in ('USD','EUR','GBP','INR','CAD','AUD','SGD','AED')),
   created_by uuid not null references auth.users(id),
-  created_at timestamptz not null default now()
+  created_at timestamptz not null default now(),
+  -- optional shared spending cap for the group; null = no budget
+  budget_cents bigint check (budget_cents is null or budget_cents > 0)
 );
 
 create table public.memberships (
   group_id bigint not null references public.groups(id) on delete cascade,
   user_id uuid not null references auth.users(id) on delete cascade,
+  -- optional personal spending cap for this member in this group
+  budget_cents bigint check (budget_cents is null or budget_cents > 0),
   primary key (group_id, user_id)
 );
 
@@ -172,6 +176,17 @@ create policy "memberships select if member" on public.memberships for select
   using (public.is_group_member(group_id));
 create policy "memberships insert by existing member" on public.memberships for insert
   with check (public.is_group_member(group_id));
+-- Budgets: the group's cap is shared so any member may set it; a personal cap
+-- is pinned to your own row. Both column-scoped, so neither update path can be
+-- used to rename a group, change its currency, or move a membership.
+create policy "groups update budget if member" on public.groups for update
+  using (public.is_group_member(id)) with check (public.is_group_member(id));
+revoke update on public.groups from authenticated;
+grant update (budget_cents) on public.groups to authenticated;
+create policy "memberships update own" on public.memberships for update
+  using (user_id = auth.uid()) with check (user_id = auth.uid());
+revoke update on public.memberships from authenticated;
+grant update (budget_cents) on public.memberships to authenticated;
 
 -- Atomic group creation: insert the group and the creator's own membership
 -- row in one transaction, as the function owner (bypasses RLS internally --

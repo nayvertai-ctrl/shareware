@@ -158,6 +158,27 @@ export function settleUp(net: Map<string, number>): [string, string, number][] {
   return plan;
 }
 
+// Spend, for budget meters. Deliberately NOT balance: the group's spend is
+// every expense in it, and a member's spend is the sum of their own shares --
+// what they consumed, regardless of who fronted the cash. Settlements are
+// irrelevant here; paying someone back doesn't un-spend the money.
+async function groupSpend(svc: SupabaseClient, groupId: number) {
+  const { data: expenses } = await svc
+    .from("expenses").select("id, amount_cents").eq("group_id", groupId).is("deleted_at", null);
+  const ids = (expenses ?? []).map((e) => e.id);
+  const total = (expenses ?? []).reduce((a, e) => a + e.amount_cents, 0);
+
+  const byUser = new Map<string, number>();
+  if (ids.length) {
+    const { data: shares } = await svc
+      .from("expense_shares").select("user_id, share_cents").in("expense_id", ids);
+    for (const s of shares ?? []) {
+      byUser.set(s.user_id, (byUser.get(s.user_id) ?? 0) + s.share_cents);
+    }
+  }
+  return { total, byUser };
+}
+
 async function settlePlan(svc: SupabaseClient, groupId: number) {
   const { data: grp } = await svc.from("groups").select("simplify_debts").eq("id", groupId).maybeSingle();
   if (!grp) return null;
@@ -273,15 +294,17 @@ async function maybeDeleteOrphanShadow(svc: SupabaseClient, userId: string): Pro
 }
 
 async function groupDetail(svc: SupabaseClient, callerId: string, groupId: number) {
-  const { data: grp } = await svc.from("groups").select("id, name, simplify_debts, currency")
+  const { data: grp } = await svc.from("groups")
+    .select("id, name, simplify_debts, currency, budget_cents")
     .eq("id", groupId).maybeSingle();
   if (!grp) throw new HttpError(404, "group not found");
   await requireMember(svc, groupId, callerId);
   const net = netBalances(await pairwiseDebts(svc, groupId));
+  const spend = await groupSpend(svc, groupId);
   // memberships.user_id and profiles.id both reference auth.users independently
   // -- no direct FK between the two tables, so PostgREST can't auto-embed one
   // under the other. Two plain queries, joined in TS, instead.
-  const { data: memberRows } = await svc.from("memberships").select("user_id")
+  const { data: memberRows } = await svc.from("memberships").select("user_id, budget_cents")
     .eq("group_id", groupId).order("user_id");
   const userIds = (memberRows ?? []).map((m) => m.user_id);
   const { data: profileRows } = userIds.length
@@ -289,13 +312,22 @@ async function groupDetail(svc: SupabaseClient, callerId: string, groupId: numbe
     : { data: [] };
   const profileById = new Map((profileRows ?? []).map((p) => [p.id, p]));
 
+  const budgetByUser = new Map(
+    (memberRows ?? []).map((m) => [m.user_id, m.budget_cents as number | null]),
+  );
+
   return {
     id: grp.id, name: grp.name, simplify_debts: grp.simplify_debts, currency: grp.currency,
+    budget: grp.budget_cents == null ? null : money(grp.budget_cents),
+    spend: money(spend.total),
     members: userIds.map((uid) => {
       const p = profileById.get(uid)!;
+      const b = budgetByUser.get(uid);
       return {
         user_id: uid, name: p.name, balance: money(net.get(uid) ?? 0),
         is_shadow: p.is_shadow, avatar_emoji: p.avatar_emoji,
+        budget: b == null ? null : money(b),
+        spend: money(spend.byUser.get(uid) ?? 0),
         pay: { upi: p.upi_id, paypal: p.paypal_me, venmo: p.venmo },
       };
     }),

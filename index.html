@@ -108,6 +108,23 @@
   .mini:hover{opacity:1;background:var(--neg-bg);color:var(--neg)}
   .mini.edit:hover{background:var(--border);color:var(--accent)}
 
+  /* Budget meter -- a battery-style fill. Colour is the signal, so it also
+     carries a text percentage for anyone who can't rely on hue alone. */
+  .budget{background:var(--card);border:1px solid var(--border);border-radius:var(--radius);
+    box-shadow:var(--shadow);padding:13px 16px;margin-top:12px;cursor:pointer}
+  .budget+.budget{margin-top:8px}
+  .budget .bhead{display:flex;align-items:baseline;gap:8px;margin-bottom:9px}
+  .budget .blabel{font-size:12px;text-transform:uppercase;letter-spacing:.06em;color:var(--muted);font-weight:650}
+  .budget .bpct{margin-left:auto;font-weight:800;font-size:13px}
+  .budget .bnum{font-size:12.5px;color:var(--muted)}
+  .track{height:9px;border-radius:999px;background:var(--border);overflow:hidden}
+  .fill{height:100%;border-radius:999px;transition:width .45s cubic-bezier(.2,.8,.2,1)}
+  .fill.ok{background:linear-gradient(90deg,var(--pos),#4fd693)}
+  .fill.warn{background:linear-gradient(90deg,#f5a623,#ffc55c)}
+  .fill.over{background:linear-gradient(90deg,var(--neg),#ff8a8d)}
+  .bpct.ok{color:var(--pos)} .bpct.warn{color:#f5a623} .bpct.over{color:var(--neg)}
+  .budget.unset{border-style:dashed;text-align:center;color:var(--muted);font-size:13px;font-weight:600}
+
   .settle-row .arrow{color:var(--muted);font-weight:800}
   .btn{background:linear-gradient(135deg,var(--accent),var(--accent2));color:#fff;font-weight:700;
     padding:9px 14px;border-radius:11px;box-shadow:0 4px 12px rgba(109,94,252,.35);transition:transform .15s;
@@ -234,6 +251,7 @@
 
 <div class="wrap">
   <div class="hero" id="hero"></div>
+  <div id="budgets"></div>
 
   <div class="tabs">
     <button data-tab="expenses" class="active">Expenses</button>
@@ -432,7 +450,7 @@ async function boot(){
   S.users=await unwrap(sb.from('profiles').select('id,name,avatar_emoji').order('name'));
   S.groups=await unwrap(sb.from('groups').select('id,name').order('id'));
   $('#groupSel').innerHTML=S.groups.map(g=>`<option value="${g.id}">${g.name}</option>`).join('')+'<option value="__new">＋ New group</option>';
-  if(!S.groups.length){$('#hero').innerHTML='';S.gid=null;render();return}
+  if(!S.groups.length){$('#hero').innerHTML='';$('#budgets').innerHTML='';S.gid=null;render();return}
   S.gid=(jumpTo&&S.groups.some(g=>g.id===jumpTo))?jumpTo:S.groups[0].id;
   $('#groupSel').value=S.gid;
   await loadGroup();
@@ -474,6 +492,56 @@ function renderHero(){
       <div><span>net</span><b>${money(s.net)}</b></div>
     </div>`;
   $('#hero').classList.add('fade');
+  $('#budgets').innerHTML=renderBudgets();
+}
+
+// ---- budgets ----
+// Spend, not balance: the meter tracks what was consumed, so settling up with
+// someone doesn't refill it.
+function budgetBar(label,spend,budget){
+  const s=parseFloat(spend||'0'), b=parseFloat(budget||'0');
+  const pct=b>0?(s/b)*100:0;
+  const cls=pct>100?'over':pct>=80?'warn':'ok';
+  const left=b-s;
+  return `<div class="budget" onclick="openBudgets()">
+    <div class="bhead"><span class="blabel">${label}</span>
+      <span class="bpct ${cls}">${Math.round(pct)}%</span></div>
+    <div class="track"><div class="fill ${cls}" style="width:${Math.min(pct,100)}%"></div></div>
+    <div class="bnum" style="margin-top:7px">${money(s)} of ${money(b)} ·
+      ${left>=0?`${money(left)} left`:`${money(-left)} over`}</div>
+  </div>`;
+}
+
+function renderBudgets(){
+  if(!S.gid||!S.groupObj)return '';
+  const me=S.members.find(m=>m.user_id===S.uid);
+  let out='';
+  if(S.groupObj.budget)out+=budgetBar('Group budget',S.groupObj.spend,S.groupObj.budget);
+  if(me&&me.budget)out+=budgetBar('My budget',me.spend,me.budget);
+  if(!out)out=`<div class="budget unset" onclick="openBudgets()">＋ Set a budget</div>`;
+  return out;
+}
+
+function openBudgets(){
+  const me=S.members.find(m=>m.user_id===S.uid);
+  openSheet(`<h3>Budgets</h3>
+    <p style="color:var(--muted);font-size:13px;margin:-6px 0 16px">Tracks what's been <b>spent</b> — your share of each expense — not who owes whom. Leave blank for no budget.</p>
+    <div class="field"><label>Group budget (${S.curSym}) — shared with everyone</label>
+      <input id="b_group" type="number" step="0.01" inputmode="decimal" placeholder="none" value="${S.groupObj.budget||''}"></div>
+    <div class="field"><label>My budget (${S.curSym}) — tracks just your own share</label>
+      <input id="b_mine" type="number" step="0.01" inputmode="decimal" placeholder="none" value="${me?.budget||''}"></div>
+    <div class="sheet-actions"><button class="btn ghost" onclick="closeSheet()" style="flex:.5">Cancel</button>
+      <button class="btn" id="b_save">Save</button></div>`);
+  $('#b_save').onclick=async()=>{
+    const parse=v=>{v=v.trim();if(!v)return null;
+      const c=toCents(v);if(c<=0)throw new Error('budget must be positive');return c};
+    try{
+      const g=parse($('#b_group').value), mine=parse($('#b_mine').value);
+      await unwrap(sb.from('groups').update({budget_cents:g}).eq('id',S.gid));
+      await unwrap(sb.from('memberships').update({budget_cents:mine})
+        .eq('group_id',S.gid).eq('user_id',S.uid));
+      closeSheet();toast('Budget saved');await loadGroup();
+    }catch(e){toast(e.message,1)}};
 }
 
 // ---- tabs ----

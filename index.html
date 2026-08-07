@@ -170,6 +170,10 @@
   .authcard h2{text-align:center;margin:0 0 4px;font-size:22px;letter-spacing:-.02em}
   .authcard .tag{text-align:center;color:var(--muted);font-size:13px;margin-bottom:20px}
   .authcard .btn{width:100%;justify-content:center;padding:13px;margin-top:6px}
+  .or{display:flex;align-items:center;gap:10px;margin:16px 0 12px;color:var(--muted);font-size:12px}
+  .or::before,.or::after{content:"";flex:1;height:1px;background:var(--border)}
+  .gbtn{width:100%;justify-content:center;gap:9px;padding:12px}
+  .gbtn svg{width:17px;height:17px;flex:none}
   .authcard .swap{text-align:center;margin-top:16px;font-size:13.5px;color:var(--muted)}
   .authcard .swap a{cursor:pointer;font-weight:650}
   .authcard .demo{text-align:center;margin-top:14px;font-size:12px;color:var(--muted);
@@ -205,6 +209,13 @@
     <symbol id="swX" viewBox="0 0 16 16">
       <path d="M4.2 4.2 11.8 11.8M11.8 4.2 4.2 11.8" stroke="currentColor"
             stroke-width="1.8" stroke-linecap="round"/>
+    </symbol>
+    <!-- Google's "G" in its brand colours; required by their branding rules -->
+    <symbol id="swGoogle" viewBox="0 0 18 18">
+      <path fill="#4285F4" d="M17.64 9.2c0-.64-.06-1.25-.16-1.84H9v3.48h4.84a4.14 4.14 0 0 1-1.8 2.72v2.26h2.92c1.7-1.57 2.68-3.88 2.68-6.62z"/>
+      <path fill="#34A853" d="M9 18c2.43 0 4.47-.8 5.96-2.18l-2.92-2.26c-.8.54-1.84.86-3.04.86-2.34 0-4.32-1.58-5.03-3.7H.96v2.34A9 9 0 0 0 9 18z"/>
+      <path fill="#FBBC05" d="M3.97 10.72a5.4 5.4 0 0 1 0-3.44V4.94H.96a9 9 0 0 0 0 8.12l3.01-2.34z"/>
+      <path fill="#EA4335" d="M9 3.58c1.32 0 2.5.45 3.44 1.35l2.58-2.58C13.46.9 11.43 0 9 0A9 9 0 0 0 .96 4.94l3.01 2.34C4.68 5.16 6.66 3.58 9 3.58z"/>
     </symbol>
   </defs>
 </svg>
@@ -245,7 +256,16 @@ const $=(s,r=document)=>r.querySelector(s);
 const SUPABASE_URL='https://zpabeysebwfqjfpwwzqw.supabase.co';
 const SUPABASE_ANON_KEY='sb_publishable_UHoA1-xX9kOCx2oSIjt5ew_e-n6nosR';
 const sb=supabase.createClient(SUPABASE_URL,SUPABASE_ANON_KEY);
-let pendingInvite=new URLSearchParams(location.search).get('invite');  // /?invite=<token>
+// /?invite=<token>. Stashed because signing in with Google navigates away to
+// Google and back, which drops the query string -- without this, following an
+// invite link and then choosing Google would silently not join the group.
+let pendingInvite=new URLSearchParams(location.search).get('invite')||sessionStorage.pendingInvite||null;
+if(pendingInvite)sessionStorage.pendingInvite=pendingInvite;
+
+// Whether this project has the Google provider configured. Resolved once at
+// startup by detectProviders(); the sign-in button only renders when true, so
+// it can never appear and then fail.
+let GOOGLE_ON=false;
 
 // unwrap a postgrest-js/rpc call: throws like the old api() helper did, so
 // every existing catch(e){toast(e.message,1)} call site keeps working.
@@ -329,6 +349,8 @@ function showAuth(mode='login'){
     <div class="field"><label>Email</label><input id="au_email" type="email" placeholder="you@example.com" autocomplete="username"></div>
     <div class="field"><label>Password</label><input id="au_pw" type="password" placeholder="••••••" autocomplete="${login?'current':'new'}-password"></div>
     <button class="btn" id="au_go">${login?'Sign in':'Create account'}</button>
+    ${GOOGLE_ON?`<div class="or"><span>or</span></div>
+      <button class="btn ghost gbtn" id="au_google"><svg viewBox="0 0 18 18"><use href="#swGoogle"/></svg>Continue with Google</button>`:''}
     <div class="swap">${login?'New here? <a id="au_swap">Create an account</a>':'Have an account? <a id="au_swap">Sign in</a>'}</div>
   </div>`;
   $('#au_swap').onclick=()=>showAuth(login?'signup':'login');
@@ -346,9 +368,16 @@ function showAuth(mode='login'){
     }catch(e){toast(e.message,1)}
   };
   $('#au_go').onclick=submit;
+  if($('#au_google'))$('#au_google').onclick=async()=>{
+    // Comes back to this same page; the session is then picked up by the
+    // onAuthStateChange handler below, since the code exchange is async.
+    const {error}=await sb.auth.signInWithOAuth({provider:'google',
+      options:{redirectTo:location.origin+location.pathname}});
+    if(error)toast(error.message,1);
+  };
   a.querySelectorAll('input').forEach(i=>i.onkeydown=e=>{if(e.key==='Enter')submit()});
 }
-$('#logoutBtn').onclick=async()=>{await sb.auth.signOut();showAuth()};
+$('#logoutBtn').onclick=async()=>{await sb.auth.signOut();S.uid=null;showAuth()};
 $('#mePill').style.cursor='pointer';
 $('#mePill').onclick=openSettings;
 function openSettings(){
@@ -397,7 +426,8 @@ async function boot(){
   if(pendingInvite){                                   // arrived via an invite link
     try{const j=await callFn('accept_invite',{token:pendingInvite});toast(`Joined ${j.name}`);jumpTo=j.id}
     catch(e){toast(e.message,1)}
-    pendingInvite=null;history.replaceState({},'',location.pathname);
+    pendingInvite=null;sessionStorage.removeItem('pendingInvite');
+    history.replaceState({},'',location.pathname);
   }
   S.users=await unwrap(sb.from('profiles').select('id,name,avatar_emoji').order('name'));
   S.groups=await unwrap(sb.from('groups').select('id,name').order('id'));
@@ -723,7 +753,25 @@ function openNewGroup(){
 }
 async function refreshUsers(){S.users=await unwrap(sb.from('profiles').select('id,name,avatar_emoji').order('name'))}
 
-boot().catch(e=>{$('#view').innerHTML=`<div class="empty">Failed to load: ${e.message}</div>`});
+async function detectProviders(){
+  try{
+    const r=await fetch(`${SUPABASE_URL}/auth/v1/settings`,{headers:{apikey:SUPABASE_ANON_KEY}});
+    GOOGLE_ON=!!((await r.json()).external||{}).google;
+  }catch{}                                  // offline / blocked: just hide it
+}
+
+// Returning from Google, supabase-js exchanges the code for a session
+// asynchronously, so boot()'s getSession() can run first and find nothing.
+// Boot again when the session lands -- but only while the login screen is
+// actually showing, otherwise restoring a session on a normal page load
+// would fire this and run boot() a second time.
+sb.auth.onAuthStateChange(e=>{
+  if(e==='SIGNED_IN'&&!S.uid&&!$('#authScreen').hidden)boot();
+});
+
+detectProviders()
+  .then(boot)
+  .catch(e=>{$('#view').innerHTML=`<div class="empty">Failed to load: ${e.message}</div>`});
 </script>
 </body>
 </html>

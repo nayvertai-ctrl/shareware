@@ -74,6 +74,18 @@
   .row{display:flex;align-items:center;gap:12px;padding:14px 16px}
   .row+.row{border-top:1px solid var(--border)}
   .av{width:40px;height:40px;border-radius:12px;display:grid;place-items:center;color:#fff;font-weight:750;flex:none;font-size:14px}
+  /* emoji avatar: neutral tile so the emoji's own colours carry it */
+  .av.emoji{background:var(--border);font-size:22px;font-weight:400;line-height:1}
+
+  /* emoji picker */
+  .emoji-grid{display:flex;flex-wrap:wrap;gap:6px;max-height:136px;overflow:auto;
+    background:var(--bg);border:1px solid var(--border);border-radius:12px;padding:8px}
+  .ebtn{width:36px;height:36px;border-radius:9px;font-size:19px;line-height:1;
+    display:grid;place-items:center;transition:.12s}
+  .ebtn:hover{background:var(--border)}
+  .ebtn.on{background:var(--accent);box-shadow:0 3px 10px rgba(109,94,252,.45)}
+  .ebtn.none{font-size:12.5px;font-weight:750;color:var(--muted)}
+  .ebtn.none.on{color:#fff}
   .grow{flex:1;min-width:0}
   .grow .t{font-weight:650;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
   .grow .m{font-size:12.5px;color:var(--muted)}
@@ -260,12 +272,42 @@ const money=v=>{const n=parseFloat(v);return (n<0?'-':'')+(S.curSym||'$')+Math.a
 const AV=['#6d5efc','#12a150','#e5484d','#f5a623','#0aa2c0','#d6409f','#7d56f4','#e8590c'];
 const color=s=>AV[[...s].reduce((a,c)=>a+c.charCodeAt(0),0)%AV.length];
 const initials=s=>s.trim().split(/\s+/).map(w=>w[0]).slice(0,2).join('').toUpperCase();
-const av=n=>`<div class="av" style="background:${color(n)}">${initials(n)}</div>`;
+// av() takes a user id and resolves both name and emoji, so every caller
+// picks up an avatar change without threading it through by hand.
+const av=id=>{const e=emojiOf(id),n=nameOf(id);
+  return e?`<div class="av emoji">${e}</div>`
+          :`<div class="av" style="background:${color(n)}">${initials(n)}</div>`};
 function toast(msg,err){const t=document.createElement('div');t.className='toast'+(err?' err':'');
   t.innerHTML=(err?'⚠️ ':'✓ ')+msg;$('#toasts').append(t);setTimeout(()=>{t.style.opacity=0;setTimeout(()=>t.remove(),300)},2600)}
 
 const S={users:[],groups:[],gid:null,uid:null,members:[],expenses:[],plan:[],summary:null,tab:'expenses'};
-const nameOf=id=>{const m=S.members.find(x=>x.user_id===id)||S.users.find(x=>x.id===id);return m?(m.name):('#'+id)};
+// Emoji avatars: an alternative to the generated initials tile. Deliberately
+// a fixed palette rather than free text -- it renders the same everywhere and
+// there's nothing to validate. "Aa" clears it back to initials.
+const EMOJI=['😀','😎','🤓','🥳','😇','🤠','👻','🐶','🐱','🦊','🐼','🦁','🐯','🐨','🐵','🐧',
+  '🦉','🦄','🐢','🐝','🌟','🔥','🌈','🌴','🍕','🍔','🍩','🍺','☕','🎸','⚽','🏀','🎮','🚀','💎','🎁'];
+
+const emojiPicker=(id,current)=>`
+  <div class="field"><label>Avatar</label>
+    <div class="emoji-grid" id="${id}_grid">
+      <button type="button" class="ebtn none${current?'':' on'}" data-e="" title="Use initials">Aa</button>
+      ${EMOJI.map(e=>`<button type="button" class="ebtn${current===e?' on':''}" data-e="${e}">${e}</button>`).join('')}
+    </div>
+  </div>`;
+
+// returns a getter for the current selection
+function wireEmojiPicker(id,current){
+  let val=current||'';
+  const grid=$(`#${id}_grid`);
+  grid.onclick=e=>{const b=e.target.closest('.ebtn');if(!b)return;
+    val=b.dataset.e;
+    grid.querySelectorAll('.ebtn').forEach(x=>x.classList.toggle('on',x===b))};
+  return ()=>val;
+}
+
+const findUser=id=>S.members.find(x=>x.user_id===id)||S.users.find(x=>x.id===id);
+const nameOf=id=>{const m=findUser(id);return m?(m.name):('#'+id)};
+const emojiOf=id=>{const m=findUser(id);return m&&m.avatar_emoji||''};
 
 // ---- theme ----
 const themeBtn=$('#themeBtn');
@@ -312,13 +354,15 @@ $('#mePill').onclick=openSettings;
 function openSettings(){
   const p=(S.me&&S.me.pay)||{};
   openSheet(`<h3>Your account</h3>
-    <div class="field"><label>Name</label><input id="se_name" value="${S.me?.name||''}"></div>
+    <div class="field"><label>Name</label><input id="se_name" value="${(S.me?.name||'').replace(/"/g,'&quot;')}"></div>
+    ${emojiPicker('se',S.me?.avatar_emoji)}
     <p style="color:var(--muted);font-size:12.5px;margin:8px 0 14px">Payment handles — group members can pay you back in one tap on the Settle-up tab.</p>
     <div class="field"><label>UPI ID</label><input id="se_upi" placeholder="you@bank" value="${p.upi||''}"></div>
     <div class="field"><label>PayPal.me username</label><input id="se_paypal" placeholder="yourname" value="${p.paypal||''}"></div>
     <div class="field"><label>Venmo username</label><input id="se_venmo" placeholder="yourname" value="${p.venmo||''}"></div>
     <div class="sheet-actions"><button class="btn ghost" onclick="closeSheet()" style="flex:.5">Cancel</button>
       <button class="btn" id="se_save">Save</button></div>`);
+  const getEmoji=wireEmojiPicker('se',S.me?.avatar_emoji);
   $('#se_save').onclick=async()=>{
     try{
       const name=$('#se_name').value.trim();
@@ -327,10 +371,12 @@ function openSettings(){
         name, upi_id:$('#se_upi').value.trim()||null,
         paypal_me:$('#se_paypal').value.trim()||null,
         venmo:$('#se_venmo').value.trim()||null,
-      }).eq('id',S.uid).select('name,upi_id,paypal_me,venmo').single());
-      S.me={id:S.uid,name:row.name,email:S.me.email,
+        avatar_emoji:getEmoji()||null,
+      }).eq('id',S.uid).select('name,upi_id,paypal_me,venmo,avatar_emoji').single());
+      S.me={id:S.uid,name:row.name,email:S.me.email,avatar_emoji:row.avatar_emoji,
             pay:{upi:row.upi_id,paypal:row.paypal_me,venmo:row.venmo}};
-      $('#meName').textContent=row.name;closeSheet();toast('Saved');await loadGroup();
+      $('#meName').textContent=row.name;closeSheet();toast('Saved');
+      await refreshUsers();await loadGroup();
     }catch(e){toast(e.message,1)}};
 }
 
@@ -341,10 +387,10 @@ async function boot(){
   const {data:{user}}=await sb.auth.getUser();
   if(!user){showAuth();return}
   let meRow;
-  try{meRow=await unwrap(sb.from('profiles').select('name,upi_id,paypal_me,venmo').eq('id',user.id).single())}
+  try{meRow=await unwrap(sb.from('profiles').select('name,upi_id,paypal_me,venmo,avatar_emoji').eq('id',user.id).single())}
   catch{showAuth();return}
   hideAuth();
-  S.me={id:user.id,name:meRow.name,email:user.email,
+  S.me={id:user.id,name:meRow.name,email:user.email,avatar_emoji:meRow.avatar_emoji,
         pay:{upi:meRow.upi_id,paypal:meRow.paypal_me,venmo:meRow.venmo}};
   S.uid=user.id;$('#meName').textContent=meRow.name;
   let jumpTo=null;
@@ -353,7 +399,7 @@ async function boot(){
     catch(e){toast(e.message,1)}
     pendingInvite=null;history.replaceState({},'',location.pathname);
   }
-  S.users=await unwrap(sb.from('profiles').select('id,name').order('name'));
+  S.users=await unwrap(sb.from('profiles').select('id,name,avatar_emoji').order('name'));
   S.groups=await unwrap(sb.from('groups').select('id,name').order('id'));
   $('#groupSel').innerHTML=S.groups.map(g=>`<option value="${g.id}">${g.name}</option>`).join('')+'<option value="__new">＋ New group</option>';
   if(!S.groups.length){$('#hero').innerHTML='';S.gid=null;render();return}
@@ -389,7 +435,7 @@ function renderHero(){
   const state=bal>0.001?'you are owed':bal<-0.001?'you owe':'all settled up';
   const s=(S.summary&&S.summary.by_currency&&S.summary.by_currency[S.curCode])||{owed:'0.00',owe:'0.00',net:'0.00'};
   $('#hero').innerHTML=`
-    <div class="who">${av(nameOf(S.uid))}<span>${nameOf(S.uid)} · in ${S.groupObj?.name||''}</span></div>
+    <div class="who">${av(S.uid)}<span>${nameOf(S.uid)} · in ${S.groupObj?.name||''}</span></div>
     <div class="amt">${money(Math.abs(bal))}</div>
     <div class="sub">${state}</div>
     <div class="stats">
@@ -424,7 +470,7 @@ function renderExpenses(v){
   v.innerHTML=`<div class="card">`+S.expenses.map(e=>{
     const parts=e.shares.map(s=>nameOf(s.user_id)).join(', ');
     return `<div class="row">
-      ${av(nameOf(e.paid_by))}
+      ${av(e.paid_by)}
       <div class="grow"><div class="t">${e.description||'Expense'}</div>
         <div class="m">${nameOf(e.paid_by)} paid · split ${e.shares.length} ways</div></div>
       <div class="amt-lg">${money(e.amount)}</div>
@@ -443,10 +489,10 @@ function balMeta(b){b=parseFloat(b);const cls=b>0.001?'pos':b<-0.001?'neg':'zero
 // user's name is their own profile. Remove is offered for everyone; the
 // Edge Function rejects it if their balance isn't zero.
 const memberActions=m=>
-  `${m.is_shadow?`<button class="mini edit" title="Rename" onclick="openRenameMember('${m.user_id}')"><svg viewBox="0 0 16 16"><use href="#swEdit"/></svg></button>`:''}
+  `${m.is_shadow?`<button class="mini edit" title="Rename" onclick="openEditMember('${m.user_id}')"><svg viewBox="0 0 16 16"><use href="#swEdit"/></svg></button>`:''}
    <button class="mini" title="${m.user_id===S.uid?'Leave group':'Remove from group'}" onclick="removeMember('${m.user_id}')"><svg viewBox="0 0 16 16"><use href="#swX"/></svg></button>`;
 
-const memberRow=m=>{const {cls,lbl}=balMeta(m.balance);return `<div class="row">${av(m.name)}
+const memberRow=m=>{const {cls,lbl}=balMeta(m.balance);return `<div class="row">${av(m.user_id)}
     <div class="grow"><div class="t">${m.name}${m.user_id===S.uid?' <span class="m">(you)</span>':''}${m.is_shadow?' <span class="m">· no account</span>':''}</div>
       <div class="m">${lbl}</div></div><div class="chip ${cls}">${money(m.balance)}</div>${memberActions(m)}</div>`};
 
@@ -460,13 +506,13 @@ function renderBalances(v){
     const combined=(parseFloat(a.balance)+parseFloat(b.balance)).toFixed(2);
     const {cls,lbl}=balMeta(combined);
     rows+=`<div class="row" style="background:var(--bg)">
-      <div style="display:flex;flex:none">${av(a.name)}<div style="margin-left:-14px">${av(b.name)}</div></div>
+      <div style="display:flex;flex:none">${av(a.user_id)}<div style="margin-left:-14px">${av(b.user_id)}</div></div>
       <div class="grow"><div class="t">${a.name} & ${b.name} <span class="m">· couple</span></div>
         <div class="m">${lbl} together</div></div>
       <div class="chip ${cls}">${money(combined)}</div>
       <button class="mini" title="Unlink" onclick="unlinkCouple(${i})"><svg viewBox="0 0 16 16"><use href="#swX"/></svg></button></div>`;
     [a,b].forEach(m=>{const mm=balMeta(m.balance);
-      rows+=`<div class="row" style="padding-left:34px;opacity:.82">${av(m.name)}
+      rows+=`<div class="row" style="padding-left:34px;opacity:.82">${av(m.user_id)}
         <div class="grow"><div class="t">${m.name}${m.user_id===S.uid?' <span class="m">(you)</span>':''}${m.is_shadow?' <span class="m">· no account</span>':''}</div>
           <div class="m">${mm.lbl}</div></div><div class="chip ${mm.cls}">${money(m.balance)}</div>${memberActions(m)}</div>`});
   });
@@ -496,17 +542,19 @@ async function removeMember(uid){
   }catch(e){toast(e.message,1)}    // e.g. "member has a nonzero balance"
 }
 
-function openRenameMember(uid){
+function openEditMember(uid){
   const m=S.members.find(x=>x.user_id===uid); if(!m)return;
-  openSheet(`<h3>Rename member</h3>
-    <p style="color:var(--muted);font-size:13px;margin:-6px 0 16px">${m.name} has no account, so this name is just a label for the group — handy for fixing a typo or telling two people with the same name apart.</p>
+  openSheet(`<h3>Edit member</h3>
+    <p style="color:var(--muted);font-size:13px;margin:-6px 0 16px">${m.name} has no account, so this is just a label for the group — handy for fixing a typo or telling two people with the same name apart.</p>
     <div class="field"><label>Name</label><input id="rn_name" value="${m.name.replace(/"/g,'&quot;')}"></div>
+    ${emojiPicker('rn',m.avatar_emoji)}
     <div class="sheet-actions"><button class="btn ghost" onclick="closeSheet()" style="flex:.5">Cancel</button>
       <button class="btn" id="rn_save">Save</button></div>`);
+  const getEmoji=wireEmojiPicker('rn',m.avatar_emoji);
   $('#rn_save').onclick=async()=>{
     const n=$('#rn_name').value.trim(); if(!n)return toast('Enter a name',1);
-    try{await callFn('rename_member',{group_id:S.gid,user_id:uid,name:n});
-      closeSheet();toast('Renamed');await refreshUsers();await loadGroup()}
+    try{await callFn('update_member',{group_id:S.gid,user_id:uid,name:n,avatar_emoji:getEmoji()});
+      closeSheet();toast('Saved');await refreshUsers();await loadGroup()}
     catch(e){toast(e.message,1)}};
 }
 
@@ -568,7 +616,7 @@ function renderSettle(v){
     const payBtns=pays.map(l=>`<a class="btn ghost sm" href="${l.url}" target="_blank" rel="noopener">${l.label}</a>`).join('');
     const role=p.from_user===S.uid?'you pay':p.to_user===S.uid?'pays you':'suggested';
     return `<div class="row settle-row" ${mine?'style="background:var(--pos-bg)"':''}>
-      ${av(nameOf(p.from_user))}
+      ${av(p.from_user)}
       <div class="grow"><div class="t">${nameOf(p.from_user)} <span class="arrow">→</span> ${nameOf(p.to_user)}</div>
         <div class="m">${role} · <b>${money(p.amount)}</b></div></div>
       <div style="display:flex;flex-wrap:wrap;gap:6px;justify-content:flex-end;align-items:center">
@@ -673,7 +721,7 @@ function openNewGroup(){
       $('#groupSel').innerHTML=S.groups.map(x=>`<option value="${x.id}">${x.name}</option>`).join('')+'<option value="__new">＋ New group</option>';
       $('#groupSel').value=g.id;closeSheet();toast('Group created');await loadGroup()}catch(e){toast(e.message,1)}};
 }
-async function refreshUsers(){S.users=await unwrap(sb.from('profiles').select('id,name').order('name'))}
+async function refreshUsers(){S.users=await unwrap(sb.from('profiles').select('id,name,avatar_emoji').order('name'))}
 
 boot().catch(e=>{$('#view').innerHTML=`<div class="empty">Failed to load: ${e.message}</div>`});
 </script>

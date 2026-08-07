@@ -285,7 +285,7 @@ async function groupDetail(svc: SupabaseClient, callerId: string, groupId: numbe
     .eq("group_id", groupId).order("user_id");
   const userIds = (memberRows ?? []).map((m) => m.user_id);
   const { data: profileRows } = userIds.length
-    ? await svc.from("profiles").select("id, name, upi_id, paypal_me, venmo, is_shadow").in("id", userIds)
+    ? await svc.from("profiles").select("id, name, upi_id, paypal_me, venmo, is_shadow, avatar_emoji").in("id", userIds)
     : { data: [] };
   const profileById = new Map((profileRows ?? []).map((p) => [p.id, p]));
 
@@ -295,22 +295,32 @@ async function groupDetail(svc: SupabaseClient, callerId: string, groupId: numbe
       const p = profileById.get(uid)!;
       return {
         user_id: uid, name: p.name, balance: money(net.get(uid) ?? 0),
-        is_shadow: p.is_shadow,
+        is_shadow: p.is_shadow, avatar_emoji: p.avatar_emoji,
         pay: { upi: p.upi_id, paypal: p.paypal_me, venmo: p.venmo },
       };
     }),
   };
 }
 
-// Renames a shadow member (someone added by name who has no account) -- for
-// fixing a typo or telling two same-named entries apart. Deliberately refuses
-// real users: their name is their own identity, editable only by them via the
-// "profiles update own" policy.
-async function renameMember(
-  svc: SupabaseClient, callerId: string, groupId: number, userId: string, name: unknown,
+// Edits a shadow member (someone added by name who has no account): their
+// display name and/or emoji avatar. Deliberately refuses real users -- their
+// profile is their own, editable only by them via "profiles update own".
+async function updateMember(
+  svc: SupabaseClient, callerId: string, groupId: number, userId: string,
+  name: unknown, avatarEmoji: unknown,
 ) {
-  const cleanName = String(name ?? "").trim();
-  if (!cleanName) throw new HttpError(400, "name required");
+  const patch: { name?: string; avatar_emoji?: string | null } = {};
+  if (name !== undefined) {
+    const cleanName = String(name).trim();
+    if (!cleanName) throw new HttpError(400, "name required");
+    patch.name = cleanName;
+  }
+  if (avatarEmoji !== undefined) {
+    const e = String(avatarEmoji ?? "").trim();
+    if ([...e].length > 12) throw new HttpError(400, "avatar must be a single emoji");
+    patch.avatar_emoji = e || null;          // blank clears it
+  }
+  if (!Object.keys(patch).length) throw new HttpError(400, "nothing to update");
   await requireMember(svc, groupId, callerId);
   const { data: target } = await svc.from("memberships").select("user_id")
     .eq("group_id", groupId).eq("user_id", userId).maybeSingle();
@@ -319,11 +329,13 @@ async function renameMember(
   const { data: profile } = await svc.from("profiles").select("is_shadow").eq("id", userId).maybeSingle();
   if (!profile) throw new HttpError(404, "member not found");
   if (!profile.is_shadow) {
-    throw new HttpError(403, "only members without an account can be renamed");
+    throw new HttpError(403, "only members without an account can be edited");
   }
 
-  await svc.from("profiles").update({ name: cleanName }).eq("id", userId);
-  return { user_id: userId, name: cleanName };
+  const { data: updated, error } = await svc.from("profiles").update(patch)
+    .eq("id", userId).select("name, avatar_emoji").single();
+  if (error) throw new HttpError(400, error.message);
+  return { user_id: userId, name: updated.name, avatar_emoji: updated.avatar_emoji };
 }
 
 // Adds a person with no account of their own -- a real (but login-less,
@@ -495,8 +507,8 @@ async function handle(req: Request): Promise<Response> {
       case "create_shadow_member":
         result = await createShadowMember(svc, user.id, body.group_id, body.name);
         break;
-      case "rename_member":
-        result = await renameMember(svc, user.id, body.group_id, body.user_id, body.name);
+      case "update_member":
+        result = await updateMember(svc, user.id, body.group_id, body.user_id, body.name, body.avatar_emoji);
         break;
       case "create_expense":
         result = await createExpense(svc, user.id, body);

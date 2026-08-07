@@ -26,7 +26,10 @@ create table public.profiles (
   upi_id text,
   paypal_me text,
   venmo text,
-  is_shadow boolean not null default false
+  is_shadow boolean not null default false,
+  -- an emoji avatar, instead of the generated initials tile. Bounded because
+  -- ZWJ sequences are several code points but nothing sane is longer.
+  avatar_emoji text check (avatar_emoji is null or char_length(avatar_emoji) <= 12)
 );
 
 -- Auto-create a profile row on signup (name comes from the signup call's
@@ -115,7 +118,7 @@ create policy "profiles update own" on public.profiles for update
 -- You may edit your own name and payment handles, but never is_shadow --
 -- relabelling yourself as a shadow would let other members rename you.
 revoke update on public.profiles from authenticated;
-grant update (name, upi_id, paypal_me, venmo) on public.profiles to authenticated;
+grant update (name, upi_id, paypal_me, venmo, avatar_emoji) on public.profiles to authenticated;
 
 -- Membership check as a SECURITY DEFINER function, not a raw subquery on
 -- memberships. A policy on `memberships` that queries `memberships` again

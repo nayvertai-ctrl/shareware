@@ -257,7 +257,7 @@ async function groupDetail(svc: SupabaseClient, callerId: string, groupId: numbe
     .eq("group_id", groupId).order("user_id");
   const userIds = (memberRows ?? []).map((m) => m.user_id);
   const { data: profileRows } = userIds.length
-    ? await svc.from("profiles").select("id, name, upi_id, paypal_me, venmo").in("id", userIds)
+    ? await svc.from("profiles").select("id, name, upi_id, paypal_me, venmo, is_shadow").in("id", userIds)
     : { data: [] };
   const profileById = new Map((profileRows ?? []).map((p) => [p.id, p]));
 
@@ -267,10 +267,35 @@ async function groupDetail(svc: SupabaseClient, callerId: string, groupId: numbe
       const p = profileById.get(uid)!;
       return {
         user_id: uid, name: p.name, balance: money(net.get(uid) ?? 0),
+        is_shadow: p.is_shadow,
         pay: { upi: p.upi_id, paypal: p.paypal_me, venmo: p.venmo },
       };
     }),
   };
+}
+
+// Renames a shadow member (someone added by name who has no account) -- for
+// fixing a typo or telling two same-named entries apart. Deliberately refuses
+// real users: their name is their own identity, editable only by them via the
+// "profiles update own" policy.
+async function renameMember(
+  svc: SupabaseClient, callerId: string, groupId: number, userId: string, name: unknown,
+) {
+  const cleanName = String(name ?? "").trim();
+  if (!cleanName) throw new HttpError(400, "name required");
+  await requireMember(svc, groupId, callerId);
+  const { data: target } = await svc.from("memberships").select("user_id")
+    .eq("group_id", groupId).eq("user_id", userId).maybeSingle();
+  if (!target) throw new HttpError(404, "member not found");
+
+  const { data: profile } = await svc.from("profiles").select("is_shadow").eq("id", userId).maybeSingle();
+  if (!profile) throw new HttpError(404, "member not found");
+  if (!profile.is_shadow) {
+    throw new HttpError(403, "only members without an account can be renamed");
+  }
+
+  await svc.from("profiles").update({ name: cleanName }).eq("id", userId);
+  return { user_id: userId, name: cleanName };
 }
 
 // Adds a person with no account of their own -- a real (but login-less,
@@ -291,6 +316,9 @@ async function createShadowMember(svc: SupabaseClient, callerId: string, groupId
   });
   if (error || !created?.user) throw new HttpError(500, error?.message ?? "could not create member");
 
+  // Mark the profile the signup trigger just made, so the app knows this
+  // member has no account and may be renamed by any member of the group.
+  await svc.from("profiles").update({ is_shadow: true }).eq("id", created.user.id);
   await svc.from("memberships").insert({ group_id: groupId, user_id: created.user.id });
   return { user_id: created.user.id, name: cleanName };
 }
@@ -438,6 +466,9 @@ async function handle(req: Request): Promise<Response> {
         break;
       case "create_shadow_member":
         result = await createShadowMember(svc, user.id, body.group_id, body.name);
+        break;
+      case "rename_member":
+        result = await renameMember(svc, user.id, body.group_id, body.user_id, body.name);
         break;
       case "create_expense":
         result = await createExpense(svc, user.id, body);

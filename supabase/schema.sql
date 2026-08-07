@@ -16,12 +16,17 @@ create extension if not exists pgcrypto;
 
 -- One row per authenticated user. auth.users (managed by Supabase Auth) holds
 -- email/password; this table holds the app-specific profile fields.
+-- is_shadow marks a profile created by the Edge Function's create_shadow_member
+-- ("add someone with no account"). Nobody can log in as a shadow member, so
+-- any group member may rename one; a real user's name stays their own. Set
+-- only by the service role -- see the column grant further down.
 create table public.profiles (
   id uuid primary key references auth.users(id) on delete cascade,
   name text not null,
   upi_id text,
   paypal_me text,
-  venmo text
+  venmo text,
+  is_shadow boolean not null default false
 );
 
 -- Auto-create a profile row on signup (name comes from the signup call's
@@ -107,6 +112,10 @@ create policy "profiles select" on public.profiles for select
   using (auth.role() = 'authenticated');
 create policy "profiles update own" on public.profiles for update
   using (auth.uid() = id);
+-- You may edit your own name and payment handles, but never is_shadow --
+-- relabelling yourself as a shadow would let other members rename you.
+revoke update on public.profiles from authenticated;
+grant update (name, upi_id, paypal_me, venmo) on public.profiles to authenticated;
 
 -- Membership check as a SECURITY DEFINER function, not a raw subquery on
 -- memberships. A policy on `memberships` that queries `memberships` again

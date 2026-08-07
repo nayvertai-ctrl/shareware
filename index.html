@@ -399,9 +399,16 @@ const getHH=()=>{try{return JSON.parse(localStorage[hhKey()]||'[]')}catch{return
 const setHH=h=>localStorage[hhKey()]=JSON.stringify(h);
 function balMeta(b){b=parseFloat(b);const cls=b>0.001?'pos':b<-0.001?'neg':'zero';
   const lbl=b>0.001?`gets back ${money(b)}`:b<-0.001?`owes ${money(-b)}`:'settled';return{cls,lbl}}
+// Rename is offered only for members with no account (is_shadow) -- a real
+// user's name is their own profile. Remove is offered for everyone; the
+// Edge Function rejects it if their balance isn't zero.
+const memberActions=m=>
+  `${m.is_shadow?`<button class="del" title="Rename" onclick="openRenameMember('${m.user_id}')">✏️</button>`:''}
+   <button class="del" title="${m.user_id===S.uid?'Leave group':'Remove from group'}" onclick="removeMember('${m.user_id}')">✕</button>`;
+
 const memberRow=m=>{const {cls,lbl}=balMeta(m.balance);return `<div class="row">${av(m.name)}
-    <div class="grow"><div class="t">${m.name}${m.user_id===S.uid?' <span class="m">(you)</span>':''}</div>
-      <div class="m">${lbl}</div></div><div class="chip ${cls}">${money(m.balance)}</div></div>`};
+    <div class="grow"><div class="t">${m.name}${m.user_id===S.uid?' <span class="m">(you)</span>':''}${m.is_shadow?' <span class="m">· no account</span>':''}</div>
+      <div class="m">${lbl}</div></div><div class="chip ${cls}">${money(m.balance)}</div>${memberActions(m)}</div>`};
 
 function renderBalances(v){
   const byId=Object.fromEntries(S.members.map(m=>[m.user_id,m]));
@@ -420,8 +427,8 @@ function renderBalances(v){
       <button class="del" title="Unlink" onclick="unlinkCouple(${i})">✕</button></div>`;
     [a,b].forEach(m=>{const mm=balMeta(m.balance);
       rows+=`<div class="row" style="padding-left:34px;opacity:.82">${av(m.name)}
-        <div class="grow"><div class="t">${m.name}${m.user_id===S.uid?' <span class="m">(you)</span>':''}</div>
-          <div class="m">${mm.lbl}</div></div><div class="chip ${mm.cls}">${money(m.balance)}</div></div>`});
+        <div class="grow"><div class="t">${m.name}${m.user_id===S.uid?' <span class="m">(you)</span>':''}${m.is_shadow?' <span class="m">· no account</span>':''}</div>
+          <div class="m">${mm.lbl}</div></div><div class="chip ${mm.cls}">${money(m.balance)}</div>${memberActions(m)}</div>`});
   });
   S.members.filter(m=>!inHH.has(m.user_id)).forEach(m=>rows+=memberRow(m));
   v.innerHTML=`<div class="sec-head"><h2>Members · ${S.members.length}</h2>
@@ -432,6 +439,36 @@ function renderBalances(v){
     <div class="card">${rows||'<div class="empty">No members</div>'}</div>`;
 }
 function unlinkCouple(i){const h=getHH();h.splice(i,1);setHH(h);toast('Couple unlinked');render()}
+
+async function removeMember(uid){
+  const m=S.members.find(x=>x.user_id===uid); if(!m)return;
+  const self=uid===S.uid;
+  if(!confirm(self?`Leave ${S.groupObj.name}?`
+                  :`Remove ${m.name} from ${S.groupObj.name}?`))return;
+  try{
+    await callFn('remove_member',{group_id:S.gid,user_id:uid});
+    // drop any couple link that referenced them, so the view doesn't keep a stale pair
+    setHH(getHH().filter(p=>!p.includes(uid)));
+    toast(self?'You left the group':`${m.name} removed`);
+    await refreshUsers();
+    if(self)await boot();          // no longer a member: re-read which groups we can see
+    else await loadGroup();
+  }catch(e){toast(e.message,1)}    // e.g. "member has a nonzero balance"
+}
+
+function openRenameMember(uid){
+  const m=S.members.find(x=>x.user_id===uid); if(!m)return;
+  openSheet(`<h3>Rename member</h3>
+    <p style="color:var(--muted);font-size:13px;margin:-6px 0 16px">${m.name} has no account, so this name is just a label for the group — handy for fixing a typo or telling two people with the same name apart.</p>
+    <div class="field"><label>Name</label><input id="rn_name" value="${m.name.replace(/"/g,'&quot;')}"></div>
+    <div class="sheet-actions"><button class="btn ghost" onclick="closeSheet()" style="flex:.5">Cancel</button>
+      <button class="btn" id="rn_save">Save</button></div>`);
+  $('#rn_save').onclick=async()=>{
+    const n=$('#rn_name').value.trim(); if(!n)return toast('Enter a name',1);
+    try{await callFn('rename_member',{group_id:S.gid,user_id:uid,name:n});
+      closeSheet();toast('Renamed');await refreshUsers();await loadGroup()}
+    catch(e){toast(e.message,1)}};
+}
 
 async function openInvite(){
   let token;

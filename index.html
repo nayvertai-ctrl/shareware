@@ -88,6 +88,13 @@
 
   .del{opacity:.5;font-size:15px;padding:6px;border-radius:8px;transition:.15s}
   .del:hover{opacity:1;background:var(--neg-bg);color:var(--neg)}
+  /* compact row actions (rename / remove) -- deliberately quiet next to the
+     balance chip, so the amount stays the loudest thing in the row */
+  .mini{opacity:.4;padding:5px;border-radius:7px;transition:.15s;flex:none;
+    display:inline-flex;color:var(--muted)}
+  .mini svg{width:13px;height:13px;display:block}
+  .mini:hover{opacity:1;background:var(--neg-bg);color:var(--neg)}
+  .mini.edit:hover{background:var(--border);color:var(--accent)}
 
   .settle-row .arrow{color:var(--muted);font-weight:800}
   .btn{background:linear-gradient(135deg,var(--accent),var(--accent2));color:#fff;font-weight:700;
@@ -174,6 +181,18 @@
       <!-- the cut: same gradient as the tile, so it reads as a clean gap -->
       <rect x="-8" y="29.6" width="80" height="4.8" fill="url(#swGrad)"
             transform="rotate(-25 32 32)"/>
+    </symbol>
+
+    <!-- Row action glyphs. Stroked paths rather than emoji: emoji don't scale
+         down cleanly and can't take the row's hover colour. -->
+    <symbol id="swEdit" viewBox="0 0 16 16">
+      <path d="M10.4 2.2 13.8 5.6 5.7 13.7 1.8 14.2l.5-3.9z" fill="none" stroke="currentColor"
+            stroke-width="1.5" stroke-linejoin="round" stroke-linecap="round"/>
+      <path d="M9 3.6 12.4 7" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/>
+    </symbol>
+    <symbol id="swX" viewBox="0 0 16 16">
+      <path d="M4.2 4.2 11.8 11.8M11.8 4.2 4.2 11.8" stroke="currentColor"
+            stroke-width="1.8" stroke-linecap="round"/>
     </symbol>
   </defs>
 </svg>
@@ -424,8 +443,8 @@ function balMeta(b){b=parseFloat(b);const cls=b>0.001?'pos':b<-0.001?'neg':'zero
 // user's name is their own profile. Remove is offered for everyone; the
 // Edge Function rejects it if their balance isn't zero.
 const memberActions=m=>
-  `${m.is_shadow?`<button class="del" title="Rename" onclick="openRenameMember('${m.user_id}')">✏️</button>`:''}
-   <button class="del" title="${m.user_id===S.uid?'Leave group':'Remove from group'}" onclick="removeMember('${m.user_id}')">✕</button>`;
+  `${m.is_shadow?`<button class="mini edit" title="Rename" onclick="openRenameMember('${m.user_id}')"><svg viewBox="0 0 16 16"><use href="#swEdit"/></svg></button>`:''}
+   <button class="mini" title="${m.user_id===S.uid?'Leave group':'Remove from group'}" onclick="removeMember('${m.user_id}')"><svg viewBox="0 0 16 16"><use href="#swX"/></svg></button>`;
 
 const memberRow=m=>{const {cls,lbl}=balMeta(m.balance);return `<div class="row">${av(m.name)}
     <div class="grow"><div class="t">${m.name}${m.user_id===S.uid?' <span class="m">(you)</span>':''}${m.is_shadow?' <span class="m">· no account</span>':''}</div>
@@ -445,7 +464,7 @@ function renderBalances(v){
       <div class="grow"><div class="t">${a.name} & ${b.name} <span class="m">· couple</span></div>
         <div class="m">${lbl} together</div></div>
       <div class="chip ${cls}">${money(combined)}</div>
-      <button class="del" title="Unlink" onclick="unlinkCouple(${i})">✕</button></div>`;
+      <button class="mini" title="Unlink" onclick="unlinkCouple(${i})"><svg viewBox="0 0 16 16"><use href="#swX"/></svg></button></div>`;
     [a,b].forEach(m=>{const mm=balMeta(m.balance);
       rows+=`<div class="row" style="padding-left:34px;opacity:.82">${av(m.name)}
         <div class="grow"><div class="t">${m.name}${m.user_id===S.uid?' <span class="m">(you)</span>':''}${m.is_shadow?' <span class="m">· no account</span>':''}</div>

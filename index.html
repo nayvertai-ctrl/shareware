@@ -4,6 +4,7 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>shareware — split expenses</title>
+<link rel="icon" href='data:image/svg+xml,%3Csvg%20xmlns="http://www.w3.org/2000/svg"%20viewBox="0%200%2064%2064"%3E%3Cdefs%3E%3ClinearGradient%20id="g"%20x1="0"%20y1="0"%20x2="64"%20y2="64"%20gradientUnits="userSpaceOnUse"%3E%3Cstop%20offset="0"%20stop-color="%236d5efc"/%3E%3Cstop%20offset="1"%20stop-color="%239b6dff"/%3E%3C/linearGradient%3E%3C/defs%3E%3Crect%20width="64"%20height="64"%20rx="15"%20fill="url%28%23g%29"/%3E%3Cpath%20d="M40.7%2017A10%2010%200%201%200%2032%2032A10%2010%200%201%201%2023.3%2047"%20fill="none"%20stroke="%23fff"%20stroke-width="8"%20stroke-linecap="round"/%3E%3Crect%20x="-8"%20y="29.6"%20width="80"%20height="4.8"%20fill="url%28%23g%29"%20transform="rotate%28-25%2032%2032%29"/%3E%3C/svg%3E'>
 <style>
   :root{
     --bg:#f6f7fb; --card:#ffffff; --text:#141726; --muted:#6b7280;
@@ -39,8 +40,9 @@
     backdrop-filter:blur(12px);border-bottom:1px solid var(--border)}
   .hbar{max-width:760px;margin:0 auto;padding:12px 16px;display:flex;align-items:center;gap:12px}
   .brand{display:flex;align-items:center;gap:10px;font-weight:800;letter-spacing:-.02em;font-size:18px}
-  .logo{width:30px;height:30px;border-radius:9px;background:linear-gradient(135deg,var(--accent),var(--accent2));
-    display:grid;place-items:center;color:#fff;font-weight:900;box-shadow:0 4px 12px rgba(109,94,252,.4)}
+  /* sizing + glow only -- the tile, gradient and mark all live in the SVG */
+  .logo{width:30px;height:30px;border-radius:9px;flex:none;box-shadow:0 4px 12px rgba(109,94,252,.4)}
+  .logo svg{width:100%;height:100%;display:block}
   .spacer{flex:1}
   .pill{display:flex;align-items:center;gap:6px;background:var(--card);border:1px solid var(--border);
     border-radius:999px;padding:6px 10px;box-shadow:var(--shadow)}
@@ -145,7 +147,7 @@
     .pill{padding:6px 8px}.pill select,.pill b{max-width:84px}}
   .authcard{width:100%;max-width:380px;background:var(--card);border:1px solid var(--border);
     border-radius:22px;box-shadow:var(--shadow);padding:28px 24px;animation:fade .3s}
-  .authcard .logo{width:46px;height:46px;border-radius:13px;font-size:22px;margin:0 auto 14px}
+  .authcard .logo{width:46px;height:46px;border-radius:13px;margin:0 auto 14px}
   .authcard h2{text-align:center;margin:0 0 4px;font-size:22px;letter-spacing:-.02em}
   .authcard .tag{text-align:center;color:var(--muted);font-size:13px;margin-bottom:20px}
   .authcard .btn{width:100%;justify-content:center;padding:13px;margin-top:6px}
@@ -156,9 +158,28 @@
 </style>
 </head>
 <body>
+<!-- Logo: a geometric S built from two arcs, severed at its waist by a
+     diagonal gap -- the "split" in split-expenses. Drawn as a path, not
+     text, so it renders identically everywhere including as the favicon.
+     Defined once here and referenced by <use> wherever the mark appears. -->
+<svg width="0" height="0" style="position:absolute" aria-hidden="true">
+  <defs>
+    <linearGradient id="swGrad" x1="0" y1="0" x2="64" y2="64" gradientUnits="userSpaceOnUse">
+      <stop offset="0" stop-color="#6d5efc"/><stop offset="1" stop-color="#9b6dff"/>
+    </linearGradient>
+    <symbol id="swMark" viewBox="0 0 64 64">
+      <rect width="64" height="64" rx="15" fill="url(#swGrad)"/>
+      <path d="M40.7 17A10 10 0 1 0 32 32A10 10 0 1 1 23.3 47"
+            fill="none" stroke="#fff" stroke-width="8" stroke-linecap="round"/>
+      <!-- the cut: same gradient as the tile, so it reads as a clean gap -->
+      <rect x="-8" y="29.6" width="80" height="4.8" fill="url(#swGrad)"
+            transform="rotate(-25 32 32)"/>
+    </symbol>
+  </defs>
+</svg>
 <header>
   <div class="hbar">
-    <div class="brand"><div class="logo">S</div><span class="wordmark">shareware</span></div>
+    <div class="brand"><div class="logo"><svg viewBox="0 0 64 64" role="img" aria-label="shareware"><use href="#swMark"/></svg></div><span class="wordmark">shareware</span></div>
     <div class="spacer"></div>
     <div class="pill" title="Group">
       <span>👥</span><select id="groupSel"></select>
@@ -241,7 +262,7 @@ function hideAuth(){$('#authScreen').hidden=true}
 function showAuth(mode='login'){
   const a=$('#authScreen');a.hidden=false;const login=mode==='login';
   a.innerHTML=`<div class="authcard">
-    <div class="logo" style="background:linear-gradient(135deg,var(--accent),var(--accent2));display:grid;place-items:center;color:#fff;font-weight:900">S</div>
+    <div class="logo"><svg viewBox="0 0 64 64" role="img" aria-label="shareware"><use href="#swMark"/></svg></div>
     <h2>shareware</h2><div class="tag">${login?'Sign in to split expenses':'Create your account'}</div>
     ${login?'':'<div class="field"><label>Name</label><input id="au_name" placeholder="Alex"></div>'}
     <div class="field"><label>Email</label><input id="au_email" type="email" placeholder="you@example.com" autocomplete="username"></div>

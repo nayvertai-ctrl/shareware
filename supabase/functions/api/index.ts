@@ -241,7 +241,35 @@ async function removeMember(svc: SupabaseClient, callerId: string, groupId: numb
   const net = netBalances(await pairwiseDebts(svc, groupId)).get(userId) ?? 0;
   if (net !== 0) throw new HttpError(409, "member has a nonzero balance");
   await svc.from("memberships").delete().eq("group_id", groupId).eq("user_id", userId);
-  return { group_id: groupId, user_id: userId, removed: true };
+  const accountDeleted = await maybeDeleteOrphanShadow(svc, userId);
+  return { group_id: groupId, user_id: userId, removed: true, account_deleted: accountDeleted };
+}
+
+// A shadow member exists only as a label inside groups -- nobody can log in as
+// them. Once they belong to no group and have no ledger rows anywhere, the
+// account is unreachable litter that would still show up in every "add an
+// existing person" list, which is how duplicate entries pile up. Drop it.
+//
+// Guarded on having zero ledger references: expenses.paid_by,
+// expense_shares.user_id and settlements.from_user/to_user all reference
+// auth.users WITHOUT on delete cascade, so deleting a user who appears in the
+// ledger would fail anyway -- and must, since that history has to stay intact.
+async function maybeDeleteOrphanShadow(svc: SupabaseClient, userId: string): Promise<boolean> {
+  const { data: profile } = await svc.from("profiles").select("is_shadow").eq("id", userId).maybeSingle();
+  if (!profile?.is_shadow) return false;
+
+  const head = { count: "exact" as const, head: true };
+  const refs = await Promise.all([
+    svc.from("memberships").select("*", head).eq("user_id", userId),
+    svc.from("expenses").select("*", head).eq("paid_by", userId),
+    svc.from("expense_shares").select("*", head).eq("user_id", userId),
+    svc.from("settlements").select("*", head).or(`from_user.eq.${userId},to_user.eq.${userId}`),
+    svc.from("groups").select("*", head).eq("created_by", userId),
+  ]);
+  if (refs.some((r) => (r.count ?? 0) > 0)) return false;
+
+  const { error } = await svc.auth.admin.deleteUser(userId);  // cascades the profile
+  return !error;
 }
 
 async function groupDetail(svc: SupabaseClient, callerId: string, groupId: number) {

@@ -1,6 +1,6 @@
 # shareware
 
-**Live app: https://nayvertai-ctrl.github.io/shareware/**
+**Live app: https://sw.gopiramsarees.in**
 
 A Splitwise-style expense splitter. Money is stored as integer cents and all
 balances are derived (never stored) from an immutable ledger of expenses,
@@ -12,7 +12,7 @@ talking directly to Supabase. There is no application server — see
 [DEPLOY.md](DEPLOY.md) for the architecture and how to deploy changes.
 
 ```
-index.html  ──►  Supabase Auth        (email + password)
+index.html  ──►  Supabase Auth        (email + password, Google)
                  Supabase PostgREST   (reads + safe writes, guarded by RLS)
                  Edge Function `api`  (the logic RLS can't express)
 ```
@@ -58,7 +58,7 @@ Supabase's managed `auth.users`; `profiles` holds the app-specific fields.
 
 | Table | Columns |
 |-------|---------|
-| `profiles` | `id` PK → `auth.users`, `name`, `upi_id`, `paypal_me`, `venmo` |
+| `profiles` | `id` PK → `auth.users`, `name`, `upi_id`, `paypal_me`, `venmo`, `is_shadow`, `avatar_emoji` |
 | `groups` | `id` PK, `name`, `simplify_debts` (default false), `currency` (default `INR`), `created_by`, `created_at` |
 | `memberships` | `group_id`, `user_id`; PK (`group_id`, `user_id`) |
 | `expenses` | `id` PK, `group_id`, `paid_by`, `amount_cents`, `description`, `deleted_at` (soft-delete), `created_at` |
@@ -97,7 +97,8 @@ make deploy  # test, then deploy the Edge Function
 
 ## Not built yet / intentionally skipped
 
-- No password reset (email is just the login identifier).
+- No password reset (email is just the login identifier). Google sign-in sidesteps it.
+- Signing in with Google creates a new account; it does not claim an existing name-only member.
 - No UI for editing an expense — the Edge Function supports `update_expense`, but nothing calls it.
 - Per-expense currencies with live FX conversion — deferred; needs an exchange-rate source. Currency is per **group**, not per expense.
 - 0-decimal (JPY) / 3-decimal currencies — excluded to keep the integer-cents model uniform.

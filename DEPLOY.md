@@ -1,6 +1,6 @@
 # Deploying shareware
 
-**Live app: https://nayvertai-ctrl.github.io/shareware/**
+**Live app: https://sw.gopiramsarees.in**
 
 Everything below is already set up. This document explains how it fits together
 and how to update it.
@@ -13,7 +13,7 @@ application server.
 ```
 index.html  ──►  GitHub Pages          (static hosting, free)
      │
-     ├────────►  Supabase Auth         (email + password, signup is open)
+     ├────────►  Supabase Auth         (email + password + Google, signup is open)
      ├────────►  Supabase PostgREST    (reads + simple writes, guarded by RLS)
      └────────►  Edge Function `api`   (the logic RLS can't express)
 ```
@@ -36,6 +36,7 @@ service-role key to bypass RLS *only after validating the request itself*:
 | `accept_invite` / `preview_invite` | A token holder isn't a member yet, so RLS has nothing to check |
 | `remove_member` | Only allowed when that member's balance is zero |
 | `create_shadow_member` | Creates an auth user for someone with no account |
+| `update_member` | Renaming/avatar allowed only for members with no account |
 
 `supabase/schema.sql` documents which tables are reachable directly and which
 deliberately have no client write policy.
@@ -84,7 +85,12 @@ change into `schema.sql` so a fresh project still gets it.
    `<script>` block in `index.html`.
 4. `supabase link --project-ref <ref>` then `supabase functions deploy api`.
 5. Enable GitHub Pages: repo Settings → Pages → source `main` / root.
-   (The repo must be public, or Pages needs a paid plan.)
+   (The repo must be public, or Pages needs a paid plan.) The `CNAME` file
+   binds the custom domain; point a DNS CNAME at `<user>.github.io`, unproxied,
+   or GitHub can't issue the certificate.
+6. Google sign-in: create an OAuth client in Google Cloud with redirect URI
+   `<supabase-url>/auth/v1/callback`, then enable the provider in the Supabase
+   dashboard. The app shows the button only once the provider reports enabled.
 
 ## Notes
 
@@ -95,8 +101,8 @@ change into `schema.sql` so a fresh project still gets it.
   Function, where Supabase injects it as an environment variable.
 - **Signup is open** — anyone with the URL can create an account. They see
   nothing until someone adds them to a group or shares an invite link.
-- **Invite links** are `…/shareware/?invite=<token>`. The token *is* the
-  authorization, so treat it like a password.
+- **Invite links** are `https://sw.gopiramsarees.in/?invite=<token>`. The token
+  *is* the authorization, so treat it like a password.
 - **Backups**: Supabase takes daily backups on the free tier — Dashboard →
   Database → Backups. Pulling your own copy with
   `supabase db dump --linked -f backup.sql` needs **Docker Desktop installed and

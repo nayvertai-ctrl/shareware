@@ -316,9 +316,7 @@ async function boot(){
   S.users=await unwrap(sb.from('profiles').select('id,name').order('name'));
   S.groups=await unwrap(sb.from('groups').select('id,name').order('id'));
   $('#groupSel').innerHTML=S.groups.map(g=>`<option value="${g.id}">${g.name}</option>`).join('')+'<option value="__new">＋ New group</option>';
-  if(!S.groups.length){$('#hero').innerHTML='';
-    $('#view').innerHTML=`<div class="empty"><div class="big">🫙</div>No groups yet.<br>
-      <button class="btn" style="margin-top:14px" onclick="openNewGroup()">Create your first group</button></div>`;return}
+  if(!S.groups.length){$('#hero').innerHTML='';S.gid=null;render();return}
   S.gid=(jumpTo&&S.groups.some(g=>g.id===jumpTo))?jumpTo:S.groups[0].id;
   $('#groupSel').value=S.gid;
   await loadGroup();
@@ -366,8 +364,16 @@ function renderHero(){
 document.querySelectorAll('.tabs button').forEach(b=>b.onclick=()=>{
   S.tab=b.dataset.tab;document.querySelectorAll('.tabs button').forEach(x=>x.classList.toggle('active',x===b));render()});
 
+const emptyState=`<div class="empty"><div class="big">🫙</div>No groups yet.<br>
+  <button class="btn" style="margin-top:14px" onclick="openNewGroup()">Create your first group</button></div>`;
+
 function render(){
   const v=$('#view');v.className='fade';
+  // Guard every tab on having a group. The tab buttons stay live even when
+  // boot() found no groups, and Balances would otherwise offer Invite /
+  // Add member -- both of which fail on a null group_id (bigint parse error,
+  // then an RLS violation) with no useful message to the user.
+  if(!S.gid){v.innerHTML=emptyState;return}
   if(S.tab==='expenses')return renderExpenses(v);
   if(S.tab==='balances')return renderBalances(v);
   return renderSettle(v);
@@ -511,6 +517,7 @@ scrim.onclick=e=>{if(e.target===scrim)closeSheet()};
 // add expense
 $('#fab').onclick=openAddExpense;
 function openAddExpense(){
+  if(!S.gid){toast('Create a group first',1);return}
   if(!S.members.length){toast('Add members to this group first',1);S.tab='balances';render();return}
   const opts=S.members.map(m=>`<option value="${m.user_id}">${m.name}</option>`).join('');
   const parts=S.members.map(m=>`<label class="part">

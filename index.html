@@ -358,7 +358,9 @@ applyTheme(localStorage.theme);
 
 // ---- auth ----
 function hideAuth(){$('#authScreen').hidden=true}
+let authMode='login';   // remembered so a late redraw keeps login vs signup
 function showAuth(mode='login'){
+  authMode=mode;
   const a=$('#authScreen');a.hidden=false;const login=mode==='login';
   a.innerHTML=`<div class="authcard">
     <div class="logo"><svg viewBox="0 0 64 64" role="img" aria-label="shareware"><use href="#swMark"/></svg></div>
@@ -823,9 +825,13 @@ async function refreshUsers(){S.users=await unwrap(sb.from('profiles').select('i
 
 async function detectProviders(){
   try{
-    const r=await fetch(`${SUPABASE_URL}/auth/v1/settings`,{headers:{apikey:SUPABASE_ANON_KEY}});
+    // Bounded: a request that hangs rather than fails would otherwise sit
+    // here forever. try/catch only covers rejection, not never-settling.
+    const r=await fetch(`${SUPABASE_URL}/auth/v1/settings`,
+      {headers:{apikey:SUPABASE_ANON_KEY},
+       signal:AbortSignal.timeout?AbortSignal.timeout(5000):undefined});
     GOOGLE_ON=!!((await r.json()).external||{}).google;
-  }catch{}                                  // offline / blocked: just hide it
+  }catch{}                                  // offline / slow / blocked: hide it
 }
 
 // Returning from Google, supabase-js exchanges the code for a session
@@ -837,9 +843,18 @@ sb.auth.onAuthStateChange(e=>{
   if(e==='SIGNED_IN'&&!S.uid&&!$('#authScreen').hidden)boot();
 });
 
-detectProviders()
-  .then(boot)
-  .catch(e=>{$('#view').innerHTML=`<div class="empty">Failed to load: ${e.message}</div>`});
+// Start the app immediately. Provider detection must NOT gate this: it is a
+// network call, and one that hangs instead of failing would leave boot()
+// never run -- the signed-in shell with no name, no groups and no error,
+// which is exactly what a weak mobile connection produced.
+boot().catch(e=>{$('#view').innerHTML=`<div class="empty">Failed to load: ${e.message}</div>`});
+
+// Runs alongside. If the answer lands after the login screen is already
+// drawn, redraw it so the Google button appears; otherwise it just stays
+// hidden, which is the safe default.
+detectProviders().then(()=>{
+  if(GOOGLE_ON&&!$('#authScreen').hidden)showAuth(authMode);
+});
 </script>
 </body>
 </html>

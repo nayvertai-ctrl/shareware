@@ -4,6 +4,22 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>shareware — split expenses</title>
+<!-- Installable icon set. All three PNGs are rasterised from the same #swMark
+     path below, so the home-screen icon can't drift from the in-app logo.
+     Relative paths: this ships to a domain root and to a /repo/ project page.
+     - icon-*.png "any"     -> launcher/desktop, rounded tile with alpha corners
+     - icon-maskable-*.png  -> Android crops "maskable" icons, so it is a full
+       bleed square with the mark inside the centre 80% safe zone
+     - apple-touch-icon.png -> iOS ignores alpha (transparent corners composite
+       to BLACK) and applies its own squircle, so it is an opaque square -->
+<link rel="manifest" href="manifest.webmanifest">
+<link rel="apple-touch-icon" href="apple-touch-icon.png">
+<meta name="apple-mobile-web-app-title" content="shareware">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<!-- matches --bg per theme so the browser chrome blends into the sticky header;
+     the manifest's single theme_color can't be media-queried, these can -->
+<meta name="theme-color" content="#f6f7fb" media="(prefers-color-scheme: light)">
+<meta name="theme-color" content="#0e0f14" media="(prefers-color-scheme: dark)">
 <link rel="icon" href='data:image/svg+xml,%3Csvg%20xmlns="http://www.w3.org/2000/svg"%20viewBox="0%200%2064%2064"%3E%3Cdefs%3E%3ClinearGradient%20id="g"%20x1="0"%20y1="0"%20x2="64"%20y2="64"%20gradientUnits="userSpaceOnUse"%3E%3Cstop%20offset="0"%20stop-color="%236d5efc"/%3E%3Cstop%20offset="1"%20stop-color="%239b6dff"/%3E%3C/linearGradient%3E%3C/defs%3E%3Crect%20width="64"%20height="64"%20rx="15"%20fill="url%28%23g%29"/%3E%3Cpath%20d="M40.7%2017A10%2010%200%201%200%2032%2032A10%2010%200%201%201%2023.3%2047"%20fill="none"%20stroke="%23fff"%20stroke-width="8"%20stroke-linecap="round"/%3E%3Crect%20x="-8"%20y="29.6"%20width="80"%20height="4.8"%20fill="url%28%23g%29"%20transform="rotate%28-25%2032%2032%29"/%3E%3C/svg%3E'>
 <style>
   :root{
@@ -50,6 +66,28 @@
   .icon-btn{width:38px;height:38px;border-radius:11px;display:grid;place-items:center;
     background:var(--card);border:1px solid var(--border);box-shadow:var(--shadow);font-size:16px;transition:transform .15s}
   .icon-btn:active{transform:scale(.92)}
+
+  /* Side menu. App-level chrome lives here, deliberately NOT in .tabs --
+     Expenses / Balances / Settle up are three views of one group, and mixing
+     "log out" into that row makes it mean two different things. */
+  .drawer{position:fixed;top:0;left:0;bottom:0;width:300px;max-width:84vw;z-index:50;
+    background:var(--card);border-right:1px solid var(--border);display:flex;flex-direction:column;
+    overflow:auto;transform:translateX(-101%);transition:transform .25s cubic-bezier(.2,.8,.2,1);
+    box-shadow:0 0 40px rgba(0,0,0,.25)}
+  .drawer.open{transform:none}
+  .dscrim{position:fixed;inset:0;background:rgba(10,10,20,.5);backdrop-filter:blur(3px);z-index:45;
+    opacity:0;pointer-events:none;transition:opacity .2s}
+  .dscrim.open{opacity:1;pointer-events:auto}
+  .dhead{display:flex;align-items:center;gap:12px;width:100%;text-align:left;
+    padding:20px 18px;border-bottom:1px solid var(--border)}
+  .dhead .t{font-size:15.5px}
+  .ditem{display:flex;align-items:center;gap:13px;width:100%;text-align:left;
+    padding:14px 18px;font-weight:650;transition:.15s}
+  .ditem:hover{background:var(--bg)}
+  .ditem .di{font-size:18px;width:24px;text-align:center;flex:none}
+  .ditem .t,.ditem .m,.dhead .t,.dhead .m{display:block}
+  .ditem .m{font-weight:500}
+  .dfoot{margin-top:auto;border-top:1px solid var(--border)}
 
   /* Hero */
   .hero{margin:20px 0;padding:22px;border-radius:22px;color:#fff;position:relative;overflow:hidden;
@@ -125,6 +163,49 @@
   .bpct.ok{color:var(--pos)} .bpct.warn{color:#f5a623} .bpct.over{color:var(--neg)}
   .budget.unset{border-style:dashed;text-align:center;color:var(--muted);font-size:13px;font-weight:600}
 
+  /* Monthly money -- a destination, so the group's chrome gets out of the way */
+  body.screen-monthly #hero,body.screen-monthly #budgets,body.screen-monthly .tabs{display:none}
+  .vhead{display:flex;align-items:center;gap:11px;margin:18px 0 6px}
+  .vhead h1{font-size:21px;margin:0;letter-spacing:-.02em}
+  .back{width:36px;height:36px;border-radius:11px;display:grid;place-items:center;flex:none;
+    background:var(--card);border:1px solid var(--border);box-shadow:var(--shadow);
+    font-size:19px;font-weight:800;line-height:1;color:var(--muted);transition:.15s}
+  .back:hover{color:var(--text)}
+  .pmbar{display:flex;align-items:center;gap:8px}
+  .pmbar input{flex:1;min-width:0;padding:10px 12px;border:1px solid var(--border);border-radius:12px;
+    background:var(--card);outline:none;font-weight:650;box-shadow:var(--shadow)}
+
+  .mets{display:grid;grid-template-columns:repeat(auto-fit,minmax(98px,1fr));gap:8px;margin-top:12px}
+  .met{background:var(--card);border:1px solid var(--border);border-radius:13px;
+    padding:10px 12px;box-shadow:var(--shadow)}
+  .met .k{font-size:10.5px;text-transform:uppercase;letter-spacing:.05em;color:var(--muted);font-weight:750}
+  .met .v{font-weight:800;font-size:16.5px;letter-spacing:-.01em;margin-top:3px}
+
+  .nudge{display:flex;gap:10px;align-items:flex-start;margin-top:12px;padding:13px 15px;
+    border-radius:14px;font-size:13.5px;line-height:1.45;font-weight:600;
+    background:var(--card);border:1px solid var(--border);box-shadow:var(--shadow)}
+  .nudge.up{background:var(--neg-bg);border-color:var(--neg);color:var(--neg)}
+  .nudge.down{background:var(--pos-bg);border-color:var(--pos);color:var(--pos)}
+
+  .cal{display:grid;grid-template-columns:repeat(7,1fr);gap:4px}
+  .cal .dow{text-align:center;font-size:11px;font-weight:750;color:var(--muted);padding:2px 0 4px}
+  .cday{aspect-ratio:1;border-radius:9px;border:1px solid var(--border);position:relative;
+    display:grid;place-items:center;font-size:13px;font-weight:650;transition:.15s}
+  .cday:hover{border-color:var(--accent)}
+  .cday.blank{border:0;pointer-events:none}
+  .cday.today{border-color:var(--accent);border-width:2px}
+  .cday.sel{outline:2px solid var(--accent);outline-offset:1px}
+  .cday .dot{position:absolute;bottom:4px;width:5px;height:5px;border-radius:50%;background:var(--pos)}
+  .callegend{display:flex;align-items:center;gap:6px;margin-top:10px;font-size:11.5px;color:var(--muted)}
+  /* the swatch is its own thing -- .cday .dot is positioned inside a day cell */
+  .callegend .dot{width:6px;height:6px;border-radius:50%;background:var(--pos);flex:none}
+  .callegend .ramp{width:54px;height:8px;border-radius:999px;display:inline-block;
+    background:linear-gradient(90deg,color-mix(in srgb,var(--neg) 16%,transparent),var(--neg))}
+  .daysep{display:flex;justify-content:space-between;gap:10px;padding:8px 16px;
+    background:var(--bg);font-size:11.5px;font-weight:750;color:var(--muted);
+    text-transform:uppercase;letter-spacing:.05em}
+  .daysep+.row{border-top:0}
+
   .settle-row .arrow{color:var(--muted);font-weight:800}
   .btn{background:linear-gradient(135deg,var(--accent),var(--accent2));color:#fff;font-weight:700;
     padding:9px 14px;border-radius:11px;box-shadow:0 4px 12px rgba(109,94,252,.35);transition:transform .15s;
@@ -165,7 +246,11 @@
   .sheet-actions .btn{flex:1;justify-content:center;text-align:center;padding:13px}
 
   /* Toast */
-  #toasts{position:fixed;bottom:96px;left:50%;transform:translateX(-50%);z-index:60;display:flex;flex-direction:column;gap:8px;width:calc(100% - 32px);max-width:420px}
+  /* Above EVERY overlay, including .authscreen (80) -- it is opaque and full
+     screen, so a lower toast is painted over and login errors ("Invalid login
+     credentials", "Name required") silently never appear. Toasts are the only
+     way this app reports failure, so they outrank anything that can cover them. */
+  #toasts{position:fixed;bottom:96px;left:50%;transform:translateX(-50%);z-index:90;display:flex;flex-direction:column;gap:8px;width:calc(100% - 32px);max-width:420px}
   .toast{background:var(--text);color:var(--bg);padding:12px 16px;border-radius:12px;font-weight:600;font-size:14px;
     box-shadow:0 10px 30px rgba(0,0,0,.3);animation:pop .25s;display:flex;gap:8px;align-items:center}
   .toast.err{background:var(--neg);color:#fff}
@@ -238,6 +323,7 @@
 </svg>
 <header>
   <div class="hbar">
+    <button class="icon-btn" id="menuBtn" title="Menu" aria-label="Menu" aria-expanded="false">☰</button>
     <div class="brand"><div class="logo"><svg viewBox="0 0 64 64" role="img" aria-label="shareware"><use href="#swMark"/></svg></div><span class="wordmark">shareware</span></div>
     <div class="spacer"></div>
     <div class="pill" title="Group">
@@ -245,7 +331,6 @@
     </div>
     <div class="pill" id="mePill" title="Signed in"><span>🙂</span><b id="meName">—</b></div>
     <button class="icon-btn" id="themeBtn" title="Toggle theme">🌙</button>
-    <button class="icon-btn" id="logoutBtn" title="Log out">⎋</button>
   </div>
 </header>
 
@@ -264,11 +349,19 @@
 
 <button class="fab" id="fab">＋ Add expense</button>
 
+<div class="dscrim" id="dscrim"></div>
+<nav class="drawer" id="drawer" aria-label="Menu"></nav>
+
 <div class="scrim" id="scrim"><div class="sheet" id="sheet"></div></div>
 <div class="authscreen" id="authScreen" hidden></div>
 <div id="toasts"></div>
 
-<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+<!-- crossorigin: without it this is a no-cors request whose response is opaque
+     (status 0), which the service worker cannot tell apart from a 404 and so
+     refuses to cache -- leaving the offline shell to load and then crash with
+     `supabase is not defined`. jsdelivr sends access-control-allow-origin: *,
+     so asking for CORS costs nothing and yields a real, checkable response. -->
+<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2" crossorigin="anonymous"></script>
 <script>
 const $=(s,r=document)=>r.querySelector(s);
 const SUPABASE_URL='https://zpabeysebwfqjfpwwzqw.supabase.co';
@@ -318,7 +411,11 @@ const av=id=>{const e=emojiOf(id),n=nameOf(id);
 function toast(msg,err){const t=document.createElement('div');t.className='toast'+(err?' err':'');
   t.innerHTML=(err?'⚠️ ':'✓ ')+msg;$('#toasts').append(t);setTimeout(()=>{t.style.opacity=0;setTimeout(()=>t.remove(),300)},2600)}
 
-const S={users:[],groups:[],gid:null,uid:null,members:[],expenses:[],plan:[],summary:null,tab:'expenses'};
+// curCode/curSym seeded to the app's default currency so money() formats
+// sanely on the screens that exist before any group is loaded (Menu, and the
+// personal ledger inside it).
+const S={users:[],groups:[],gid:null,uid:null,members:[],expenses:[],plan:[],summary:null,tab:'expenses',
+  curCode:'INR',curSym:'₹'};
 // Emoji avatars: an alternative to the generated initials tile. Deliberately
 // a fixed palette rather than free text -- it renders the same everywhere and
 // there's nothing to validate. "Aa" clears it back to initials.
@@ -397,7 +494,7 @@ function showAuth(mode='login'){
   };
   a.querySelectorAll('input').forEach(i=>i.onkeydown=e=>{if(e.key==='Enter')submit()});
 }
-$('#logoutBtn').onclick=async()=>{await sb.auth.signOut();S.uid=null;showAuth()};
+async function logout(){await sb.auth.signOut();S.uid=null;showAuth()}
 $('#mePill').style.cursor='pointer';
 $('#mePill').onclick=openSettings;
 function openSettings(){
@@ -450,7 +547,10 @@ async function boot(){
     history.replaceState({},'',location.pathname);
   }
   S.users=await unwrap(sb.from('profiles').select('id,name,avatar_emoji').order('name'));
-  S.groups=await unwrap(sb.from('groups').select('id,name').order('id'));
+  // created_by rides along so the Menu tab knows whether to offer "delete
+  // group" -- the delete policy is creator-only, and a delete the server
+  // silently drops would otherwise report success.
+  S.groups=await unwrap(sb.from('groups').select('id,name,created_by').order('id'));
   $('#groupSel').innerHTML=S.groups.map(g=>`<option value="${g.id}">${g.name}</option>`).join('')+'<option value="__new">＋ New group</option>';
   if(!S.groups.length){$('#hero').innerHTML='';$('#budgets').innerHTML='';S.gid=null;render();return}
   S.gid=(jumpTo&&S.groups.some(g=>g.id===jumpTo))?jumpTo:S.groups[0].id;
@@ -458,7 +558,7 @@ async function boot(){
   await loadGroup();
 }
 $('#groupSel').onchange=async e=>{if(e.target.value==='__new'){e.target.value=S.gid||'';openNewGroup();return}
-  S.gid=+e.target.value;await loadGroup()};
+  S.gid=+e.target.value;S.screen=null;await loadGroup()};   // picking a group means you want to see it
 
 async function loadGroup(){
   $('#view').innerHTML='<div class="skel"></div><div class="skel"></div><div class="skel"></div>';
@@ -555,6 +655,14 @@ const emptyState=`<div class="empty"><div class="big">🫙</div>No groups yet.<b
 
 function render(){
   const v=$('#view');v.className='fade';
+  // Monthly money is a destination, not a tab: it has nothing to do with the
+  // selected group, so the hero, budget meters and tab row all step aside for
+  // it (CSS below) and the FAB repoints at the thing you'd actually add here.
+  const monthly=S.screen==='monthly';
+  document.body.classList.toggle('screen-monthly',monthly);
+  $('#fab').textContent=monthly?'＋ Add entry':'＋ Add expense';
+  $('#fab').onclick=monthly?openAddPersonal:openAddExpense;
+  if(monthly)return renderMonthly(v);
   // Guard every tab on having a group. The tab buttons stay live even when
   // boot() found no groups, and Balances would otherwise offer Invite /
   // Add member -- both of which fail on a null group_id (bigint parse error,
@@ -725,6 +833,304 @@ function renderSettle(v){
     </div>`}).join('')+`</div>`;
 }
 
+// ---- side menu ----
+// Everything in here is app-level: it is about you or about the group as a
+// whole, not a view of the current group's ledger. That's why it's a drawer
+// off the header and not a fourth tab -- the tab row answers "what am I
+// looking at in this group", and "log out" is not an answer to that.
+const drawer=$('#drawer'),dscrim=$('#dscrim'),menuBtn=$('#menuBtn');
+function openMenu(){renderDrawer();drawer.classList.add('open');dscrim.classList.add('open');
+  menuBtn.setAttribute('aria-expanded','true');drawer.querySelector('.dhead').focus()}
+function closeMenu(){drawer.classList.remove('open');dscrim.classList.remove('open');
+  menuBtn.setAttribute('aria-expanded','false')}
+menuBtn.onclick=openMenu;
+dscrim.onclick=closeMenu;
+addEventListener('keydown',e=>{if(e.key==='Escape')closeMenu()});
+
+// aria-label because the visible label is split across spans with a decorative
+// emoji in front -- without it a screen reader reads out the emoji, or nothing.
+const dItem=(icon,title,sub,call)=>`<button class="ditem" aria-label="${title}" onclick="closeMenu();${call}">
+  <span class="di" aria-hidden="true">${icon}</span>
+  <span class="grow"><span class="t">${title}</span>${sub?`<span class="m">${sub}</span>`:''}</span></button>`;
+
+// Rebuilt on every open, so it always shows the group you're actually in.
+function renderDrawer(){
+  const g=S.groups.find(x=>x.id===S.gid);
+  drawer.innerHTML=`
+    <button class="dhead" aria-label="Your account" onclick="closeMenu();openSettings()">${av(S.uid)}
+      <span class="grow"><span class="t">${S.me?.name||''}</span><span class="m">${S.me?.email||''}</span></span>
+      <span style="color:var(--muted);font-weight:800">›</span></button>
+    ${dItem('🧭','Guide me','What everything in here does','openGuide()')}
+    ${dItem('💰','Monthly money','Your own expenses &amp; savings','openMonthly()')}
+    ${g?dItem('🚪','Leave or delete group',g.name,'openGroupExit()'):''}
+    <div class="dfoot">${dItem('👋','Log out','','logout()')}</div>`;
+}
+
+const guideBit=(h,b)=>`<div style="margin-bottom:14px"><div style="font-weight:700;margin-bottom:3px">${h}</div>
+  <div style="color:var(--muted);font-size:13.5px">${b}</div></div>`;
+
+function openGuide(){
+  openSheet(`<h3>How shareware works</h3>
+    ${guideBit('Groups','Every expense lives in a group — a trip, a flat, a night out. Switch groups from the 👥 picker up top, or make one from the same menu. Each group has its own currency.')}
+    ${guideBit('Add expense','The ＋ button records who <b>paid</b> and who it was <b>for</b>. Split it equally, by exact amounts, by percentage, or by weighted shares — the shares are worked out on the server and always add up to the total, to the cent.')}
+    ${guideBit('Balances','Nothing stores “you owe Anna ₹5”. Balances are recalculated from the expenses and payments every time you look, so deleting an expense just undoes it. Positive means you get money back, negative means you owe. Two people who share a wallet can be linked as a <b>couple</b> to see one combined number.')}
+    ${guideBit('Settle up','A suggested list of who should pay whom. With “simplify debts” on, payments get re-routed across the group so fewer transfers clear everything. If someone saved a UPI / PayPal / Venmo handle in their account, you get a one-tap pay button next to their name. <b>Settle</b> records the payment.')}
+    ${guideBit('Budgets','The meter under the header tracks what has been <b>spent</b> — the group’s total, and your own share. Settling up doesn’t refill it, because the money is still gone. Tap it to set or clear a cap.')}
+    ${guideBit('Adding people','<b>Invite</b> makes a link that lets someone sign in and join. <b>Add member</b> puts in somebody with no account at all — handy for a friend who’ll never install this; you can rename them later.')}
+    ${guideBit('Monthly money','Your own running list of what you spent and saved this month. Private to you, and completely separate from the group ledger — nothing there changes what anyone owes.')}
+    <div class="sheet-actions"><button class="btn" onclick="closeSheet()">Got it</button></div>`);
+}
+
+function openGroupExit(){
+  const g=S.groups.find(x=>x.id===S.gid); if(!g)return;
+  const mine=g.created_by===S.uid;
+  openSheet(`<h3>Leave or delete</h3>
+    <p style="color:var(--muted);font-size:13px;margin:-6px 0 16px">You're in <b>${g.name}</b>.</p>
+    <div style="color:var(--muted);font-size:13px;margin-bottom:8px">
+      <b style="color:var(--text)">Leave</b> takes you out and leaves the group running for everyone else.
+      You can only leave once you're settled up — a leftover balance would strand somebody's money.</div>
+    <button class="btn ghost" id="x_leave" style="width:100%;justify-content:center;padding:12px">Leave group</button>
+    <div style="margin-top:20px;color:var(--muted);font-size:13px">
+      <b style="color:var(--text)">Delete</b> wipes the group for everyone — every expense, payment and
+      balance in it, permanently.
+      ${mine?'':`<br>Only ${nameOf(g.created_by)}, who created this group, can do that.`}</div>
+    ${mine?`<button class="btn" id="x_del" style="width:100%;justify-content:center;padding:12px;margin-top:8px;background:var(--neg);box-shadow:none">Delete group</button>`:''}
+    <div class="sheet-actions"><button class="btn ghost" onclick="closeSheet()">Cancel</button></div>`);
+  $('#x_leave').onclick=()=>{closeSheet();removeMember(S.uid)};   // reuses the balance-gated path
+  if($('#x_del'))$('#x_del').onclick=deleteGroup;
+}
+
+async function deleteGroup(){
+  const g=S.groups.find(x=>x.id===S.gid); if(!g)return;
+  if(!confirm(`Delete "${g.name}" for everyone?\n\nEvery expense, payment and balance in it is removed permanently. This cannot be undone.`))return;
+  const key=hhKey();                        // depends on S.gid, so read it before boot() clears it
+  try{
+    // .select() so a delete RLS refused (not the creator) comes back as zero
+    // rows instead of a silent 204 that looks exactly like success.
+    const gone=await unwrap(sb.from('groups').delete().eq('id',S.gid).select('id'));
+    if(!gone.length)throw new Error('only the group’s creator can delete it');
+    localStorage.removeItem(key);
+    closeSheet();toast(`${g.name} deleted`);await boot();
+  }catch(e){toast(e.message,1)}
+}
+
+// ---- personal monthly ledger ----
+// Yours alone and outside the group ledger entirely -- none of this moves
+// anybody's balance. ponytail: rendered in the selected group's currency,
+// since the app has no cross-currency conversion anywhere and almost everyone
+// here is in one currency.
+//
+// Dates are handled as 'YYYY-MM-DD' strings end to end and never parsed into a
+// Date for display. `new Date('2026-08-01')` is UTC midnight, which renders as
+// July 31st for anyone west of Greenwich -- the classic off-by-one that makes a
+// calendar quietly wrong. The only Date used here is for grid arithmetic, in
+// UTC, where no local offset can reach it.
+const pad2=n=>String(n).padStart(2,'0');
+const todayStr=()=>{const d=new Date();                      // local parts, not toISOString
+  return `${d.getFullYear()}-${pad2(d.getMonth()+1)}-${pad2(d.getDate())}`};
+const thisMonth=()=>todayStr().slice(0,7);
+const MONTHS=['January','February','March','April','May','June','July',
+  'August','September','October','November','December'];
+
+// Everything the calendar needs about a 'YYYY-MM', derived, nothing stored.
+function monthMeta(ym){
+  const [y,mo]=ym.split('-').map(Number);
+  return {y,mo,
+    days:new Date(Date.UTC(y,mo,0)).getUTCDate(),            // day 0 of next month
+    firstDow:(new Date(Date.UTC(y,mo-1,1)).getUTCDay()+6)%7, // Mon = 0
+    prev:mo===1?`${y-1}-12`:`${y}-${pad2(mo-1)}`,
+    next:mo===12?`${y+1}-01`:`${y}-${pad2(mo+1)}`,
+    label:`${MONTHS[mo-1]} ${y}`};
+}
+
+// One round trip covers the shown month AND the one before it, because every
+// metric on this screen is a comparison against last month. Fetching them
+// separately would double the latency to say the same thing.
+async function openMonthly(ym){
+  S.screen='monthly';S.pmMonth=ym||thisMonth();S.pmDay=null;
+  await loadMonthly();
+}
+function exitMonthly(){S.screen=null;render()}
+async function loadMonthly(){
+  const m=monthMeta(S.pmMonth);
+  try{S.pmRows=await unwrap(sb.from('personal_entries')
+    .select('id,entry_date,kind,label,amount_cents')
+    .gte('entry_date',`${m.prev}-01`).lt('entry_date',`${m.next}-01`)
+    .order('entry_date',{ascending:false}).order('id',{ascending:false}))}
+  catch(e){S.pmRows=[];toast(e.message,1)}
+  render();
+}
+
+// Single pass over both months: per-day buckets, this month's totals, and last
+// month's spend all fall out of one loop rather than four filter+reduce scans.
+function monthlyStats(){
+  const m=monthMeta(S.pmMonth),curPre=S.pmMonth+'-',prevPre=m.prev+'-';
+  const live=S.pmMonth===thisMonth();
+  const elapsed=live?Number(todayStr().slice(8)):m.days;
+  const day=new Array(m.days+1);
+  let spent=0,saved=0,prevSpent=0,maxDay=0;
+  for(const r of S.pmRows){
+    if(r.entry_date.startsWith(curPre)){
+      const d=+r.entry_date.slice(8);
+      const c=day[d]||(day[d]={spent:0,saved:0});
+      if(r.kind==='expense'){spent+=r.amount_cents;c.spent+=r.amount_cents;
+        if(c.spent>maxDay)maxDay=c.spent}
+      else{saved+=r.amount_cents;c.saved+=r.amount_cents}
+    }else if(r.entry_date.startsWith(prevPre)&&r.kind==='expense'){
+      prevSpent+=r.amount_cents;
+    }
+  }
+  let noSpend=0;
+  for(let d=1;d<=elapsed;d++)if(!day[d]||!day[d].spent)noSpend++;
+  const perDay=elapsed?spent/elapsed:0;
+  return {m,live,elapsed,day,spent,saved,prevSpent,maxDay,noSpend,perDay,
+    // A run-rate off two or three days is noise, not a forecast, so we don't
+    // pretend to have one. Past months project to what actually happened.
+    projected:live?(elapsed>=5?Math.round(perDay*m.days):null):spent};
+}
+
+function renderMonthly(v){
+  const s=monthlyStats(),m=s.m;
+  const met=(k,val,c)=>`<div class="met"><div class="k">${k}</div>
+    <div class="v"${c?` style="color:${c}"`:''}>${val}</div></div>`;
+  v.innerHTML=`
+    <div class="vhead"><button class="back" onclick="exitMonthly()" aria-label="Back">‹</button>
+      <h1>Monthly money</h1></div>
+    <p style="color:var(--muted);font-size:13px;margin:0 4px 12px">Just yours — nobody else can see it, and nothing here changes what anyone owes.</p>
+    <div class="pmbar">
+      <button class="back" onclick="goMonth('${m.prev}')" aria-label="Previous month">‹</button>
+      <input id="pm_month" type="month" value="${S.pmMonth}" aria-label="Month">
+      <button class="back" onclick="goMonth('${m.next}')" aria-label="Next month">›</button>
+    </div>
+    <div class="mets">
+      ${met('spent',money(s.spent/100),'var(--neg)')}
+      ${met('saved',money(s.saved/100),'var(--pos)')}
+      ${met('net',money((s.saved-s.spent)/100))}
+      ${met('per day',money(s.perDay/100))}
+      ${met('no-spend days',`${s.noSpend} <span style="font-size:12px;color:var(--muted);font-weight:600">of ${s.elapsed}</span>`)}
+    </div>
+    ${nudge(s)}
+    ${calendar(s)}
+    ${entryList(s)}`;
+  $('#pm_month').onchange=e=>goMonth(e.target.value);
+}
+function goMonth(ym){S.pmMonth=ym;S.pmDay=null;loadMonthly()}
+
+// The deterrent is arithmetic, not scolding: show where this pace lands and
+// what that costs against last month. A number someone can act on beats a
+// telling-off they'll dismiss.
+function nudge(s){
+  const prevLabel=MONTHS[monthMeta(s.m.prev).mo-1];
+  if(s.live&&s.projected===null)
+    return `<div class="nudge"><span>📊</span><span>${money(s.spent/100)} so far. A few more days and there's enough here to project the month.</span></div>`;
+  const end=s.projected;
+  if(!end&&!s.prevSpent)return '';
+  if(!s.prevSpent)
+    return `<div class="nudge"><span>📊</span><span>${s.live?`On this pace you'll finish ${MONTHS[s.m.mo-1]} at <b>${money(end/100)}</b>.`:`<b>${money(end/100)}</b> spent in ${MONTHS[s.m.mo-1]}.`} No ${prevLabel} figures to compare against yet.</span></div>`;
+  const diff=end-s.prevSpent,up=diff>0;
+  return `<div class="nudge ${up?'up':'down'}"><span>${up?'⚠️':'✅'}</span><span>
+    ${s.live?`On this pace you'll finish ${MONTHS[s.m.mo-1]} at <b>${money(end/100)}</b>`
+            :`<b>${money(end/100)}</b> spent in ${MONTHS[s.m.mo-1]}`} —
+    <b>${money(Math.abs(diff)/100)} ${up?'more':'less'}</b> than ${prevLabel}'s ${money(s.prevSpent/100)}.
+    ${up?`That's ${Math.round((diff/s.prevSpent)*100)}% up.`:''}</span></div>`;
+}
+
+// Heat is spend per day against the month's own worst day, so the scale always
+// fits whoever is looking at it. Colour alone can't carry meaning, so every
+// cell's amount is in its aria-label and the day's total sits under the list.
+function calendar(s){
+  const cells=[];
+  for(let i=0;i<s.m.firstDow;i++)cells.push('<div class="cday blank"></div>');
+  for(let d=1;d<=s.m.days;d++){
+    const c=s.day[d],iso=`${S.pmMonth}-${pad2(d)}`;
+    const t=c&&c.spent&&s.maxDay?c.spent/s.maxDay:0;
+    const bg=t?`background:color-mix(in srgb,var(--neg) ${Math.round(16+t*54)}%,transparent)`:'';
+    const cls=['cday',S.pmDay===d?'sel':'',iso===todayStr()?'today':''].filter(Boolean).join(' ');
+    cells.push(`<button class="${cls}" style="${bg}" onclick="pickDay(${d})"
+      aria-label="${d} ${MONTHS[s.m.mo-1]}: ${c&&c.spent?money(c.spent/100)+' spent':'nothing spent'}${c&&c.saved?', '+money(c.saved/100)+' saved':''}">
+      <span>${d}</span>${c&&c.saved?'<span class="dot"></span>':''}</button>`);
+  }
+  return `<div class="sec-head"><h2>By day</h2>
+      <span style="color:var(--muted);font-size:12px">tap a day to filter</span></div>
+    <div class="card" style="padding:12px">
+      <div class="cal">${['M','T','W','T','F','S','S'].map(d=>`<div class="dow">${d}</div>`).join('')}${cells.join('')}</div>
+      <div class="callegend"><span class="dot"></span> saved something
+        <span style="margin-left:auto">less</span><i class="ramp"></i><span>more spent</span></div>
+    </div>`;
+}
+function pickDay(d){S.pmDay=S.pmDay===d?null:d;render()}
+
+function entryList(s){
+  const pre=S.pmMonth+'-';
+  let rows=S.pmRows.filter(r=>r.entry_date.startsWith(pre));
+  if(S.pmDay)rows=rows.filter(r=>+r.entry_date.slice(8)===S.pmDay);
+  // when filtered, the heading carries the day's money -- that's what the
+  // separator would have said, and a row count says nothing the list doesn't
+  const c=S.pmDay&&s.day[S.pmDay];
+  const dayTot=c?[c.spent?money(c.spent/100)+' spent':'',c.saved?money(c.saved/100)+' saved':'']
+    .filter(Boolean).join(' · '):'';
+  const head=`<div class="sec-head"><h2>${S.pmDay?`${S.pmDay} ${MONTHS[s.m.mo-1]}${dayTot?' · '+dayTot:''}`:`Entries · ${rows.length}`}</h2>
+    ${S.pmDay?'<button class="link-btn" onclick="pickDay(null)">Show whole month</button>':''}</div>`;
+  if(!rows.length)return head+`<div class="empty">${S.pmDay?'Nothing logged that day.':'Nothing logged this month yet.'}</div>`;
+  // rows arrive newest-first, so a date subhead every time the date changes
+  // groups them without a second pass or a lookup table.
+  let last=null,out='';
+  for(const r of rows){
+    // filtered to one day, the heading above already says which -- a separator
+    // per date would just repeat it
+    if(r.entry_date!==last&&!S.pmDay){
+      last=r.entry_date;
+      const d=+r.entry_date.slice(8),c=s.day[d];
+      out+=`<div class="daysep"><span>${d} ${MONTHS[s.m.mo-1]}</span>
+        <span>${c.spent?money(c.spent/100)+' spent':''}${c.spent&&c.saved?' · ':''}${c.saved?money(c.saved/100)+' saved':''}</span></div>`;
+    }
+    out+=`<div class="row"><div class="av emoji">${r.kind==='saving'?'🏦':'🧾'}</div>
+      <div class="grow"><div class="t">${r.label}</div><div class="m">${r.kind==='saving'?'saved':'spent'}</div></div>
+      <div class="amt-lg" style="color:var(--${r.kind==='saving'?'pos':'neg'})">${money(r.amount_cents/100)}</div>
+      <button class="del" title="Delete" onclick="delPersonal(${r.id})">🗑</button></div>`;
+  }
+  return head+`<div class="card">${out}</div>`;
+}
+
+function openAddPersonal(){
+  const m=monthMeta(S.pmMonth);
+  // default to the day you're looking at, else today, else the 1st -- never a
+  // date outside the month on screen, which would vanish on save
+  const def=S.pmDay?`${S.pmMonth}-${pad2(S.pmDay)}`
+           :S.pmMonth===thisMonth()?todayStr():`${S.pmMonth}-01`;
+  openSheet(`<h3>Add entry</h3>
+    <div class="field"><label>Date</label><input id="pa_date" type="date" value="${def}"
+      min="${S.pmMonth}-01" max="${S.pmMonth}-${pad2(m.days)}"></div>
+    <div class="field"><label>What was it?</label><input id="pa_label" placeholder="Rent, groceries, SIP…"></div>
+    <div class="field"><label>Amount (${S.curSym.trim()})</label><input id="pa_amt" type="number" step="0.01" inputmode="decimal" placeholder="0.00"></div>
+    <div class="field"><div class="seg" id="pa_seg">
+      <button class="on" data-k="expense">Spent</button><button data-k="saving">Saved</button></div></div>
+    <div class="sheet-actions"><button class="btn ghost" onclick="closeSheet()" style="flex:.5">Cancel</button>
+      <button class="btn" id="pa_add">Add</button></div>`);
+  let kind='expense';
+  const seg=$('#pa_seg');
+  seg.querySelectorAll('button').forEach(b=>b.onclick=()=>{kind=b.dataset.k;
+    seg.querySelectorAll('button').forEach(x=>x.classList.toggle('on',x===b))});
+  $('#pa_add').onclick=async()=>{
+    const label=$('#pa_label').value.trim(),date=$('#pa_date').value;
+    if(!label)return toast('Enter a description',1);
+    if(!/^\d{4}-\d{2}-\d{2}$/.test(date))return toast('Pick a date',1);
+    try{
+      const cents=toCents($('#pa_amt').value);
+      if(cents<=0)throw new Error('amount must be more than zero');
+      await unwrap(sb.from('personal_entries')
+        .insert({user_id:S.uid,entry_date:date,kind,label,amount_cents:cents}));
+      closeSheet();toast('Added');
+      if(date.slice(0,7)!==S.pmMonth)S.pmMonth=date.slice(0,7);   // follow it, don't hide it
+      await loadMonthly();
+    }catch(e){toast(e.message,1)}};
+}
+async function delPersonal(id){
+  if(!confirm('Remove this entry?'))return;
+  try{await unwrap(sb.from('personal_entries').delete().eq('id',id));await loadMonthly()}
+  catch(e){toast(e.message,1)}
+}
+
 // ---- actions ----
 async function delExpense(id){if(!confirm('Delete this expense?'))return;
   try{await unwrap(sb.from('expenses').update({deleted_at:new Date().toISOString()}).eq('id',id));
@@ -740,7 +1146,6 @@ function closeSheet(){scrim.classList.remove('open')}
 scrim.onclick=e=>{if(e.target===scrim)closeSheet()};
 
 // add expense
-$('#fab').onclick=openAddExpense;
 function openAddExpense(){
   if(!S.gid){toast('Create a group first',1);return}
   if(!S.members.length){toast('Add members to this group first',1);S.tab='balances';render();return}
@@ -817,7 +1222,7 @@ function openNewGroup(){
     try{
       const g=await unwrap(sb.rpc('create_group_with_owner',
         {p_name:n,p_currency:$('#g_cur').value,p_simplify:$('#g_simp').checked}));
-      S.groups.push({id:g.id,name:g.name});S.gid=g.id;
+      S.groups.push({id:g.id,name:g.name,created_by:g.created_by});S.gid=g.id;
       $('#groupSel').innerHTML=S.groups.map(x=>`<option value="${x.id}">${x.name}</option>`).join('')+'<option value="__new">＋ New group</option>';
       $('#groupSel').value=g.id;closeSheet();toast('Group created');await loadGroup()}catch(e){toast(e.message,1)}};
 }
@@ -855,6 +1260,13 @@ boot().catch(e=>{$('#view').innerHTML=`<div class="empty">Failed to load: ${e.me
 detectProviders().then(()=>{
   if(GOOGLE_ON&&!$('#authScreen').hidden)showAuth(authMode);
 });
+
+// Makes the app installable. Registered after load so it never competes with
+// the first paint or boot()'s requests, and swallowed on failure -- a worker
+// that won't register (private mode, insecure origin, blocked) must not take
+// the app down with it. See sw.js for why it is network-first.
+if('serviceWorker' in navigator)
+  addEventListener('load',()=>navigator.serviceWorker.register('sw.js').catch(()=>{}));
 </script>
 </body>
 </html>

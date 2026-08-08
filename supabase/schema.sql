@@ -113,6 +113,27 @@ create table public.invites (
   created_at timestamptz not null default now()
 );
 
+-- Your own monthly expenses and savings. Deliberately NOT part of the group
+-- ledger: nothing here affects anybody's balance, nobody else can read it, and
+-- no split math touches it -- which is why it needs no Edge Function at all.
+--
+-- A plain `date`, not a timestamp: an entry happened on a day, and giving it a
+-- clock time would only invite the timezone bugs that come with reading one
+-- back. The month view is a range scan over this column -- the month is
+-- derived, never stored, same principle as balances.
+create table public.personal_entries (
+  id bigint generated always as identity primary key,
+  user_id uuid not null references auth.users(id) on delete cascade,
+  entry_date date not null,
+  kind text not null check (kind in ('expense','saving')),
+  label text not null check (char_length(label) between 1 and 80),
+  amount_cents bigint not null check (amount_cents > 0),
+  created_at timestamptz not null default now()
+);
+-- user_id leads because RLS pins every query to auth.uid(), so it is always an
+-- equality on the first column with the month's range scan behind it.
+create index personal_entries_user_date on public.personal_entries (user_id, entry_date);
+
 -- Row Level Security ---------------------------------------------------------
 
 alter table public.profiles enable row level security;
@@ -122,6 +143,7 @@ alter table public.expenses enable row level security;
 alter table public.expense_shares enable row level security;
 alter table public.settlements enable row level security;
 alter table public.invites enable row level security;
+alter table public.personal_entries enable row level security;
 
 -- profiles: readable by any signed-in user (the original GET /users listed
 -- every user's name to any authenticated caller); writable only by the owner.
@@ -165,6 +187,13 @@ $$;
 -- below, does not have this problem).
 create policy "groups select if member" on public.groups for select
   using (public.is_group_member(id));
+-- Delete cascades through memberships, expenses (and their shares),
+-- settlements and invites, so dropping this one row drops the whole group.
+-- Creator only: leaving is remove_member, which is balance-gated and
+-- reversible; deleting destroys shared history for everyone in the group.
+create policy "groups delete by creator" on public.groups for delete
+  using (created_by = auth.uid());
+grant delete on public.groups to authenticated;
 
 -- memberships: a member can see other members of their groups, and can add
 -- someone else (add_member). No delete policy -- removing a member requires
@@ -263,3 +292,10 @@ create policy "invites select if member" on public.invites for select
   using (public.is_group_member(group_id));
 create policy "invites insert if member" on public.invites for insert
   with check (public.is_group_member(group_id) and created_by = auth.uid());
+
+-- personal_entries: one policy for every verb, because the rule is the same
+-- for all of them -- a row belongs to exactly one user and only that user
+-- touches it. No sharing, no group check, nothing to validate server-side.
+create policy "personal entries own" on public.personal_entries for all
+  using (user_id = auth.uid()) with check (user_id = auth.uid());
+grant select, insert, update, delete on public.personal_entries to authenticated;

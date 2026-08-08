@@ -408,8 +408,11 @@ const initials=s=>s.trim().split(/\s+/).map(w=>w[0]).slice(0,2).join('').toUpper
 const av=id=>{const e=emojiOf(id),n=nameOf(id);
   return e?`<div class="av emoji">${e}</div>`
           :`<div class="av" style="background:${color(n)}">${initials(n)}</div>`};
-function toast(msg,err){const t=document.createElement('div');t.className='toast'+(err?' err':'');
-  t.innerHTML=(err?'⚠️ ':'✓ ')+msg;$('#toasts').append(t);setTimeout(()=>{t.style.opacity=0;setTimeout(()=>t.remove(),300)},2600)}
+// textContent, not innerHTML: messages carry names typed by other members and
+// now error text lifted straight out of the URL, none of which is ours to
+// trust. ms is longer for anything the user has to read and act on.
+function toast(msg,err,ms=2600){const t=document.createElement('div');t.className='toast'+(err?' err':'');
+  t.textContent=(err?'⚠️ ':'✓ ')+msg;$('#toasts').append(t);setTimeout(()=>{t.style.opacity=0;setTimeout(()=>t.remove(),300)},ms)}
 
 // curCode/curSym seeded to the app's default currency so money() formats
 // sanely on the screens that exist before any group is loaded (Menu, and the
@@ -526,15 +529,39 @@ function openSettings(){
     }catch(e){toast(e.message,1)}};
 }
 
+// Read, and clear, an auth error handed back in the URL. Supabase reports a
+// failed OAuth round trip by redirecting here with error/error_description --
+// in the fragment for the implicit flow, in the query string for PKCE -- and
+// nothing used to look at it. That is why a rejected Google sign-in was
+// indistinguishable from "the page just went back to the login screen".
+//
+// Only ever touches an ERROR url. A successful redirect carries access_token in
+// that same fragment, which supabase-js reads asynchronously during startup --
+// clearing it here would break the sign-ins that do work.
+function takeAuthError(){
+  const hash=new URLSearchParams(location.hash.replace(/^#/,''));
+  const qs=new URLSearchParams(location.search);
+  if(hash.get('access_token')||qs.get('code'))return null;
+  const msg=hash.get('error_description')||hash.get('error')
+          ||qs.get('error_description')||qs.get('error');
+  if(!msg)return null;
+  ['error','error_code','error_description'].forEach(k=>qs.delete(k));
+  const q=qs.toString();
+  history.replaceState({},'',location.pathname+(q?'?'+q:''));  // also drops the fragment
+  return msg;
+}
+
 // ---- boot ----
 async function boot(){
   const {data:{session}}=await sb.auth.getSession();
-  if(!session){showAuth();return}
-  const {data:{user}}=await sb.auth.getUser();
-  if(!user){showAuth();return}
+  if(!session){showAuth();return}          // simply signed out -- not a failure
+  const {data:{user},error:userErr}=await sb.auth.getUser();
+  if(!user){showAuth();toast(userErr?userErr.message:'Could not verify your session',1,7000);return}
   let meRow;
+  // A signed-in user with no readable profile row lands back on the login
+  // screen looking exactly like a failed password. Say which of the two it is.
   try{meRow=await unwrap(sb.from('profiles').select('name,upi_id,paypal_me,venmo,avatar_emoji').eq('id',user.id).single())}
-  catch{showAuth();return}
+  catch(e){showAuth();toast('Signed in, but your profile could not be loaded — '+e.message,1,9000);return}
   hideAuth();
   S.me={id:user.id,name:meRow.name,email:user.email,avatar_emoji:meRow.avatar_emoji,
         pay:{upi:meRow.upi_id,paypal:meRow.paypal_me,venmo:meRow.venmo}};
@@ -1253,6 +1280,11 @@ sb.auth.onAuthStateChange(e=>{
 // never run -- the signed-in shell with no name, no groups and no error,
 // which is exactly what a weak mobile connection produced.
 boot().catch(e=>{$('#view').innerHTML=`<div class="empty">Failed to load: ${e.message}</div>`});
+
+// Surface whatever the provider bounced us back with. Runs after boot() is
+// kicked off so it can never race supabase-js reading a *successful* redirect.
+const oauthError=takeAuthError();
+if(oauthError)toast(oauthError,1,9000);
 
 // Runs alongside. If the answer lands after the login screen is already
 // drawn, redraw it so the Google button appears; otherwise it just stays

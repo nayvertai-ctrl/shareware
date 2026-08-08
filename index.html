@@ -542,9 +542,13 @@ function takeAuthError(){
   const hash=new URLSearchParams(location.hash.replace(/^#/,''));
   const qs=new URLSearchParams(location.search);
   if(hash.get('access_token')||qs.get('code'))return null;
-  const msg=hash.get('error_description')||hash.get('error')
-          ||qs.get('error_description')||qs.get('error');
+  let msg=hash.get('error_description')||hash.get('error')
+        ||qs.get('error_description')||qs.get('error');
   if(!msg)return null;
+  // Supabase percent-encodes error_description a second time, so one pass
+  // through URLSearchParams still leaves "code%3A 4%2F0A" on screen. Decode
+  // once more -- guarded, because a stray % in a genuine message would throw.
+  try{if(/%[0-9A-Fa-f]{2}/.test(msg))msg=decodeURIComponent(msg)}catch{}
   ['error','error_code','error_description'].forEach(k=>qs.delete(k));
   const q=qs.toString();
   history.replaceState({},'',location.pathname+(q?'?'+q:''));  // also drops the fragment
